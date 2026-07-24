@@ -1,0 +1,24 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+.antigravity/
+Archivos seguros de Checkpoint Ley IA/*
+!Archivos seguros de Checkpoint Ley IA/.gitkeep
+licencia.key
+*.db
+.vault_log.db
+entrada/*
+!entrada/.gitkeep
+procesados/*
+!procesados/.gitkeep
+salida/*
+!salida/.gitkeep
+__pycache__/
+LiaVault_Packs_Descarga/*
+!LiaVault_Packs_Descarga/.gitkeep
+Referencias/

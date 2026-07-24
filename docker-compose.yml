@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  lia-vault:
+    build: .
+    container_name: lia_vault_app
+    ports:
+      - "8502:8502"
+    volumes:
+      - ./entrada:/app/entrada
+      - ./salida:/app/salida
+      - ./procesados:/app/procesados
+      - ./diccionario_corporativo.txt:/app/diccionario_corporativo.txt
+      - ./licencia.key:/app/licencia.key
+    restart: unless-stopped

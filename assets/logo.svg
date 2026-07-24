@@ -1,0 +1,6 @@
+<svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Red/Magenta Shape (Left Front) -->
+  <path d="M 45 115 C 65 40 145 15 145 15 C 115 80 115 125 145 185 C 70 175 45 115 45 115 Z" fill="#E11D5A"/>
+  <!-- Blue Shape (Right Back) -->
+  <path d="M 100 110 C 120 70 170 50 170 50 C 148 90 148 125 170 160 C 120 150 100 110 100 110 Z" fill="#38BDF8" fill-opacity="0.85"/>
+</svg>
