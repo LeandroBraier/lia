@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   lia-vault:
     build: .
@@ -8,7 +6,7 @@ services:
       - "8502:8502"
     volumes:
       - ./entrada:/app/entrada
-      - ./salida:/app/salida
+      - ./salida:/app/Archivos seguros de Checkpoint Ley IA
       - ./procesados:/app/procesados
       - ./diccionario_corporativo.txt:/app/diccionario_corporativo.txt
       - ./licencia.key:/app/licencia.key

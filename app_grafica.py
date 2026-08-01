@@ -27,6 +27,10 @@ ft.colors = getattr(ft, "colors", getattr(ft, "Colors", None))
 ft.alignment.center = getattr(ft.alignment, "center", getattr(ft.alignment, "Alignment", None)(0, 0))
 ft.alignment.center_right = getattr(ft.alignment, "center_right", getattr(ft.alignment, "Alignment", None)(1, 0))
 ft.alignment.center_left = getattr(ft.alignment, "center_left", getattr(ft.alignment, "Alignment", None)(-1, 0))
+if not hasattr(ft, "FileDropEvent"):
+    class FileDropEvent:
+        pass
+    ft.FileDropEvent = FileDropEvent
 
 from validador import ValidadorLicencia
 from app_offline import (
@@ -57,8 +61,12 @@ LOGO_SVG_RAW = """<svg width="200" height="200" viewBox="0 0 200 200" fill="none
 LOGO_BASE64 = base64.b64encode(LOGO_SVG_RAW.encode("utf-8")).decode("utf-8")
 
 
+ES_DOCKER = os.path.exists("/.dockerenv") or os.getenv("DOCKER_CONTAINER") == "true"
+
 def abrir_local(ruta):
     """Abre un archivo o carpeta en el explorador del sistema operativo local."""
+    if ES_DOCKER:
+        return  # En Docker no hay explorador de escritorio gráfico
     try:
         abs_path = os.path.abspath(ruta)
         if not os.path.exists(abs_path):
@@ -84,7 +92,17 @@ async def main(page: ft.Page):
         try:
             page.launch_url(url, web_window_name="_blank")
         except Exception:
-            abrir_local(url)
+            pass
+        # Fallback nativo de escritorio para asegurar apertura de navegador local
+        try:
+            if platform.system() == "Darwin":
+                subprocess.run(["open", url])
+            elif platform.system() == "Windows":
+                subprocess.run(["explorer", url])
+            else:
+                subprocess.run(["xdg-open", url])
+        except Exception as ex:
+            print(f"Error abriendo URL {url}: {ex}")
 
     validador = ValidadorLicencia()
     licencia_valida, mensaje_licencia, cliente_id, dias_restantes = validador.verificar_licencia_offline()
@@ -149,6 +167,49 @@ async def main(page: ft.Page):
 
     EXT_PERMITIDAS = {".txt", ".csv", ".docx", ".xlsx", ".pdf", ".png", ".jpg", ".jpeg", ".json", ".md"}
     ultimo_archivo_procesado = None
+
+    def mostrar_dialogo_ver_documento(nombre_doc, ruta_doc):
+        contenido = ""
+        try:
+            if os.path.exists(ruta_doc):
+                if nombre_doc.endswith((".txt", ".csv", ".json", ".md")):
+                    with open(ruta_doc, "r", encoding="utf-8", errors="ignore") as f:
+                        contenido = f.read(3000)
+                else:
+                    contenido = f"📄 Archivo resguardado: {nombre_doc}\n\nLos archivos binarios (.pdf, .docx, .xlsx, .png) están procesados y disponibles en la carpeta /salida de tu sistema."
+            else:
+                contenido = "Archivo no encontrado."
+        except Exception as ex:
+            contenido = f"Error al leer contenido: {ex}"
+
+        def cerrar_dlg(e):
+            dlg.open = False
+            page.update()
+
+        dlg = ft.AlertDialog(
+            title=ft.Row([
+                ft.Icon(ft.icons.ARTICLE, color=EMERALD_GREEN, size=20),
+                ft.Text(f"Documento Sanitizado: {nombre_doc}", size=12, weight=ft.FontWeight.BOLD, color="#FFFFFF")
+            ]),
+            content=ft.Container(
+                content=ft.Column([
+                    ft.TextField(value=contenido, multiline=True, min_lines=8, max_lines=14, read_only=True, text_size=11, color="#E2E8F0")
+                ], spacing=6),
+                width=520, padding=4
+            ),
+            actions=[
+                ft.TextButton("Cerrar", on_click=cerrar_dlg)
+            ]
+        )
+        page.dialog = dlg
+        dlg.open = True
+        page.update()
+
+    def abrir_documento_o_dialogo(nombre_doc, ruta_doc):
+        if ES_DOCKER:
+            mostrar_dialogo_ver_documento(nombre_doc, ruta_doc)
+        else:
+            abrir_local(ruta_doc)
 
     def mostrar_dialogo_key(nombre_doc, ruta_k):
         def cerrar_dlg(e):
@@ -239,7 +300,7 @@ async def main(page: ft.Page):
                 bgcolor="#0F172A", padding=6, border_radius=4, height=45
             ),
             ft.Row([
-                ft.ElevatedButton("Abrir", icon=ft.icons.OPEN_IN_NEW, color="#FFFFFF", bgcolor="#334155", height=28, on_click=lambda _: abrir_local(ruta_f)),
+                ft.ElevatedButton("Abrir", icon=ft.icons.OPEN_IN_NEW, color="#FFFFFF", bgcolor="#334155", height=28, on_click=lambda _, fn=nombre_archivo, r=ruta_f: abrir_documento_o_dialogo(fn, r)),
                 ft.ElevatedButton("Anonimizar ahora", icon=ft.icons.SHIELD, color="#FFFFFF", bgcolor=ACCENT_ORANGE if es_comp else "#475569", height=28, disabled=not es_comp, on_click=lambda _: click_procesar_individual(nombre_archivo))
             ], spacing=6)
         ], spacing=4)
@@ -251,7 +312,7 @@ async def main(page: ft.Page):
         # 1. Cola de entrada
         try:
             todos = os.listdir(CARPETA_ENTRADA)
-            lista_archivos_entrada = [f for f in todos if not f.startswith("~$") and os.path.isfile(os.path.join(CARPETA_ENTRADA, f))]
+            lista_archivos_entrada = [f for f in todos if not f.startswith(".") and not f.startswith("~$") and os.path.isfile(os.path.join(CARPETA_ENTRADA, f))]
             texto_estado_sanitizador.value = f"Cola actualizada: {len(lista_archivos_entrada)} archivo(s) pendientes."
             texto_estado_sanitizador.color = NEON_BLUE
             btn_procesar_lote.disabled = len(lista_archivos_entrada) == 0
@@ -340,7 +401,7 @@ async def main(page: ft.Page):
                                 ) if es_reciente else ft.Container()
                             ], expand=True),
                             ft.Row([
-                                ft.ElevatedButton("Abrir documento", icon=ft.icons.OPEN_IN_NEW, color="#FFFFFF", bgcolor=ACCENT_ORANGE, height=30, on_click=lambda _, r=ruta_doc: abrir_local(r)),
+                                ft.ElevatedButton("Abrir documento", icon=ft.icons.OPEN_IN_NEW, color="#FFFFFF", bgcolor=ACCENT_ORANGE, height=30, on_click=lambda _, fn=f, r=ruta_doc: abrir_documento_o_dialogo(fn, r)),
                                 ft.ElevatedButton("Llave .key", icon=ft.icons.VPN_KEY, color="#FFFFFF", bgcolor="#334155", height=30, disabled=not ruta_key, on_click=lambda _, fn=f, r=ruta_key: mostrar_dialogo_key(fn, r))
                             ], spacing=6)
                         ], alignment=ft.MainAxisAlignment.BETWEEN),
@@ -498,21 +559,57 @@ async def main(page: ft.Page):
                 page.controls.clear()
                 cargar_interfaz_principal()
             else:
-                texto_error_licencia.value = f"Revalidación fallida: {msg_lic}"
+                texto_error_licencia.value = f"⚠️ Estado de licencia: {msg_lic}"
                 page.update()
 
-        texto_error_licencia = ft.Text(mensaje_licencia, size=13, color=CRIMSON_ERROR, text_align=ft.TextAlign.CENTER)
+        texto_error_licencia = ft.Text(mensaje_licencia, size=13, color="#FCA5A5", text_align=ft.TextAlign.CENTER, weight=ft.FontWeight.W_500)
 
         page.add(
             ft.Container(
                 content=ft.Column([
-                    ft.Icon(ft.icons.GPP_BAD, color=CRIMSON_ERROR, size=80),
-                    ft.Text("Lia Vault - Acceso bloqueado", size=24, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                    ft.Text("Escudo de privacidad local", size=14, color=TEXT_MUTED, italic=True),
+                    ft.Icon(ft.icons.TIMER_OFF_ROUNDED, color=ACCENT_ORANGE, size=72),
+                    ft.Text("Período de Prueba Expirado", size=24, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+                    ft.Text("Tu licencia de uso On-Premise ha llegado a su término.", size=13, color=TEXT_MUTED),
+                    ft.Container(
+                        content=ft.Column([
+                            texto_error_licencia,
+                            ft.Text("Para continuar anonimizando documentos con Lia Vault sin límites, solicita la renovación de tu licencia corporativa.", size=11, color="#94A3B8", text_align=ft.TextAlign.CENTER)
+                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
+                        bgcolor="#1E293B88", padding=16, border_radius=8, border=ft.border.all(1, "#334155"), width=440
+                    ),
+                    ft.Row([
+                        ft.ElevatedButton(
+                            "Solicitar Renovación por Email", 
+                            icon=ft.icons.EMAIL_OUTLINED, 
+                            color="#FFFFFF", 
+                            bgcolor=ACCENT_ORANGE, 
+                            height=42,
+                            on_click=lambda _: abrir_url("mailto:hello@korautomate.com?subject=Quiero%20renovar%20mi%20licencia%20de%20Lia%20Vault")
+                        ),
+                        ft.OutlinedButton(
+                            "Ir a la Web de Renovación",
+                            icon=ft.icons.OPEN_IN_NEW,
+                            height=42,
+                            on_click=lambda _: abrir_url("https://lia.korautomate.com/#renovacion")
+                        )
+                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=10),
+                    ft.Text("O escribe a: hello@korautomate.com (Asunto: Quiero renovar mi licencia de Lia Vault)", size=11, color=NEON_BLUE, weight=ft.FontWeight.W_500),
                     ft.Divider(height=20, color="#334155"),
-                    texto_error_licencia,
-                    ft.ElevatedButton("Verificar licencia.key", icon=ft.icons.REFRESH, color="#FFFFFF", bgcolor=NEON_BLUE, on_click=intentar_revalidar)
-                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15),
+                    ft.Row([
+                        ft.Text("Lia Vault es un desarrollo de", size=11, color=TEXT_MUTED),
+                        ft.TextButton(
+                            "KorAutomate", 
+                            on_click=lambda _: abrir_url("https://korautomate.com"),
+                            style=ft.ButtonStyle(color=NEON_BLUE, padding=0)
+                        ),
+                        ft.Text("para la iniciativa", size=11, color=TEXT_MUTED),
+                        ft.TextButton(
+                            "Checkpoint-IA", 
+                            on_click=lambda _: abrir_url("https://checkpoint-ia.com"),
+                            style=ft.ButtonStyle(color=NEON_BLUE, padding=0)
+                        )
+                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=4)
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=16),
                 alignment=ft.alignment.center,
                 padding=40
             )
@@ -684,9 +781,19 @@ async def main(page: ft.Page):
                 ft.Row([
                     ft.Row([
                         ft.Icon(ft.icons.FOLDER_SPECIAL, color=EMERALD_GREEN, size=20),
-                        ft.Text("Archivos seguros ya procesados", size=15, weight=ft.FontWeight.BOLD, color="#FFFFFF")
+                        ft.Column([
+                            ft.Text("Archivos seguros ya procesados", size=15, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+                            ft.Text("📍 Ubicación física de descarga en tu equipo: ./salida (dentro de la carpeta del proyecto)", size=11, color=NEON_BLUE, weight=ft.FontWeight.W_500)
+                        ], spacing=2)
                     ], spacing=8),
-                    ft.IconButton(ft.icons.FOLDER_OPEN, icon_size=18, tooltip="Abrir carpeta de salida en Finder", on_click=lambda _: abrir_local(carpeta_salida_configurada))
+                    ft.IconButton(
+                        ft.icons.FOLDER_OPEN, 
+                        icon_size=18, 
+                        disabled=ES_DOCKER,
+                        icon_color=TEXT_MUTED if ES_DOCKER else "#FFFFFF",
+                        tooltip="Acceso directo a carpeta desactivado en Docker (archivos almacenados en ./salida)" if ES_DOCKER else "Abrir carpeta de salida en explorador", 
+                        on_click=lambda _: abrir_local(carpeta_salida_configurada)
+                    )
                 ], alignment=ft.MainAxisAlignment.BETWEEN),
                 ft.Divider(height=10, color="#334155"),
                 vista_procesados_unificada
@@ -813,7 +920,7 @@ async def main(page: ft.Page):
                     txt_info_key.value = f"✅ Llave aplicada exitosamente ({len(mapa_k)} términos desanonimizados). Guardado como {nombre_res}."
                     txt_info_key.color = EMERALD_GREEN
                     
-                    abrir_local(ruta_restaurada)
+                    abrir_documento_o_dialogo(nombre_res, ruta_restaurada)
                 else:
                     txt_anon = tf_texto_anonimizado.value or ""
                     res = revertir_anonimizacion(txt_anon, mapa_k)
@@ -843,10 +950,10 @@ async def main(page: ft.Page):
                 nombre_b, ext = os.path.splitext(os.path.basename(archivo_anonimizado_traduccion_path))
                 target = os.path.join(os.path.dirname(archivo_anonimizado_traduccion_path), f"{nombre_b}_restaurado{ext}")
                 if os.path.exists(target):
-                    abrir_local(target)
+                    abrir_documento_o_dialogo(os.path.basename(target), target)
                     return
                 else:
-                    abrir_local(archivo_anonimizado_traduccion_path)
+                    abrir_documento_o_dialogo(os.path.basename(archivo_anonimizado_traduccion_path), archivo_anonimizado_traduccion_path)
                     return
 
             if tf_texto_restaurado.value and not tf_texto_restaurado.value.startswith("⚠️"):
@@ -859,7 +966,7 @@ async def main(page: ft.Page):
                 dest = os.path.join(CARPETA_ENTRADA, f"{nombre_base_out}{ext_final}")
                 with open(dest, "w", encoding="utf-8") as f_out:
                     f_out.write(tf_texto_restaurado.value)
-                abrir_local(dest)
+                abrir_documento_o_dialogo(os.path.basename(dest), dest)
 
         def click_limpiar_traduccion(e=None):
             nonlocal mapa_key_cargado_traduccion, archivo_anonimizado_traduccion_path, nombre_archivo_traduccion_original

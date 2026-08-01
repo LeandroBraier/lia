@@ -22,3 +22,28 @@ __pycache__/
 LiaVault_Packs_Descarga/*
 !LiaVault_Packs_Descarga/.gitkeep
 Referencias/
+
+# Block massive dependency folders
+node_modules/
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+
+# Block build outputs and caches
+dist/
+build/
+.next/
+.nuxt/
+.out/
+.cache/
+
+# Block large data, media, and logs
+*.log
+*.mp4
+*.png
+*.jpg
+*.svg
+*.json
+*.csv

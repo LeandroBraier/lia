@@ -56,27 +56,69 @@ except ImportError:
     cv2 = None
     Image = None
 
-# 1. Configuración de rutas corporativas
-CARPETA_ENTRADA = "./entrada"
-CARPETA_SALIDA_DEFECTO = "./Archivos seguros de Checkpoint Ley IA"
+# 1. Configuración de rutas corporativas defensivas
+def _obtener_directorio_trabajo_base():
+    """
+    Retorna un directorio base de trabajo que tenga permisos de escritura.
+    Si el sistema de archivos actual es Read-Only (ej: DMG montado de macOS en /Volumes/),
+    se utiliza un directorio seguro en $HOME/LiaVault_Workspace.
+    """
+    dir_actual = os.getcwd()
+    
+    # Si la ruta está montada bajo /Volumes/ (DMG de macOS), forzar directamente espacio personal escribible
+    if dir_actual.startswith("/Volumes/") or "/Volumes/" in dir_actual:
+        dir_usuario = os.path.expanduser("~/LiaVault_Workspace")
+        try:
+            os.makedirs(dir_usuario, exist_ok=True)
+            return dir_usuario
+        except Exception:
+            dir_tmp = "/tmp/LiaVault_Workspace"
+            os.makedirs(dir_tmp, exist_ok=True)
+            return dir_tmp
+
+    archivo_prueba = os.path.join(dir_actual, ".test_write_perm")
+    try:
+        with open(archivo_prueba, "w") as f:
+            f.write("test")
+        os.remove(archivo_prueba)
+        return dir_actual
+    except Exception:
+        dir_usuario = os.path.expanduser("~/LiaVault_Workspace")
+        try:
+            os.makedirs(dir_usuario, exist_ok=True)
+            return dir_usuario
+        except Exception:
+            dir_tmp = "/tmp/LiaVault_Workspace"
+            os.makedirs(dir_tmp, exist_ok=True)
+            return dir_tmp
+
+BASE_DIR_WRITABLE = _obtener_directorio_trabajo_base()
+
+CARPETA_ENTRADA = os.path.join(BASE_DIR_WRITABLE, "entrada")
+CARPETA_SALIDA_DEFECTO = os.path.join(BASE_DIR_WRITABLE, "salida")
 CARPETA_SALIDA = CARPETA_SALIDA_DEFECTO
-CARPETA_PROCESADOS = "./procesados"
-CARPETA_CONFIG = "./config"
+CARPETA_PROCESADOS = os.path.join(BASE_DIR_WRITABLE, "procesados")
+CARPETA_CONFIG = os.path.join(BASE_DIR_WRITABLE, "config")
 RUTA_DICCIONARIO = os.path.join(CARPETA_CONFIG, "diccionario_exclusiones.txt")
 
-os.makedirs(CARPETA_ENTRADA, exist_ok=True)
-os.makedirs(CARPETA_SALIDA_DEFECTO, exist_ok=True)
-os.makedirs(CARPETA_PROCESADOS, exist_ok=True)
-os.makedirs(CARPETA_CONFIG, exist_ok=True)
+try:
+    os.makedirs(CARPETA_ENTRADA, exist_ok=True)
+    os.makedirs(CARPETA_SALIDA_DEFECTO, exist_ok=True)
+    os.makedirs(CARPETA_PROCESADOS, exist_ok=True)
+    os.makedirs(CARPETA_CONFIG, exist_ok=True)
+except Exception as ex_mk:
+    print(f"⚠️ Aviso al preparar directorios: {ex_mk}")
 
-# Crear archivo de exclusiones/proyectos secretos por defecto si no existe
-if not os.path.exists(RUTA_DICCIONARIO):
-    with open(RUTA_DICCIONARIO, "w", encoding="utf-8") as f:
-        f.write("# Lista de palabras prohibidas de la empresa (un término por línea)\n")
-        f.write("# Las coincidencias se reemplazarán por [TERMINO_CONFIDENCIAL]\n")
-        f.write("Proyecto Halcon\n")
-        f.write("Adquisición Alfa\n")
-        f.write("Formula-X7\n")
+    if not os.path.exists(RUTA_DICCIONARIO):
+        with open(RUTA_DICCIONARIO, "w", encoding="utf-8") as f:
+            f.write("# Lista de palabras prohibidas de la empresa (un término por línea)\n")
+            f.write("# Las coincidencias se reemplazarán por [TERMINO_CONFIDENCIAL]\n")
+            f.write("Proyecto Halcon\n")
+            f.write("Adquisición Alfa\n")
+            f.write("Formula-X7\n")
+except OSError:
+    pass
+
 
 MAPA_ETIQUETAS = {
     "PERSON": "[PERSONA]",
@@ -139,14 +181,23 @@ SOFTWARE_ALLOWLIST = {
     'uno', 'vale', 'ah', 'mirá', 'mira', 'acá', 'después', 'grabación',
     'aparentemente', 'socios', 'pymes', 'tecnologías', 'verdadero', 'consciente',
     'julio', 'agosto', 'unión europea', 'barcelona', 'view', 'notes', 'cuál', 'quién',
-    # Términos estadísticos / estructurales de datasets
-    'data', 'año', 'unidad', 'número', 'valor', 'concepto', 'estado', 'tipo',
-    'hombres', 'mujeres', 'alumnos', 'alumnas', 'matriculados', 'matriculadas',
+    # Términos genéricos corporativos / estadísticos
+    'empresa', 'empresas', 'compañía', 'compania', 'entidad', 'cliente', 'clientes',
+    'sociedad', 'director', 'directora', 'gerente', 'jefe', 'jefa', 'empleado', 'empleada',
+    'usuario', 'sistema', 'servicio', 'data', 'año', 'unidad', 'número', 'valor', 'concepto',
+    'estado', 'tipo', 'hombres', 'mujeres', 'alumnos', 'alumnas', 'matriculados', 'matriculadas',
     'total', 'otros', 'provisional', 'definitivo', 'territorio', 'código',
     'primer', 'segundo', 'curso', 'ciclo', 'formación', 'profesional', 'básica',
     'centros', 'escolares', 'formativos', 'dato', 'nacional',
-    'rol', 'ajuste', 'score', 'rating', 'icp', 'lookalikes', 'empresas', 'lista',
+    'rol', 'ajuste', 'score', 'rating', 'icp', 'lookalikes', 'lista',
 }
+
+SPANISH_NAMES = [
+    "Carlos Mendoza", "Santiago", "Alejandro Gómez", "Juan Pérez", "María Rodríguez",
+    "Laura Martínez", "Andrés Felipe", "Sofía Castro", "Santiago Valencia", "Gabriela",
+    "Diego Armando", "Carlos", "Juan", "Gómez", "Mendoza", "Alejandro", "Sonia", "Beatriz",
+    "Laura", "Noelia", "Aznar", "Pedro", "Ana", "Lucía", "Javier", "Martín", "Elena", "Carmen"
+]
 
 def aplicar_diccionario_exclusiones(texto):
     if not isinstance(texto, str):
@@ -169,10 +220,12 @@ MAPA_ETIQUETAS = {
     "USERNAME": "USUARIO"
 }
 
-def sanitizar_nombre_archivo(nombre_archivo):
+def sanitizar_nombre_archivo(nombre_archivo, carpeta_salida=None):
     nombre_base, ext = os.path.splitext(nombre_archivo)
-    limpio = aplicar_diccionario_exclusiones(nombre_base)
-    return f"{limpio}{ext}", {}
+    nombre_base_espacios = nombre_base.replace("_", " ").replace("-", " ")
+    limpio, key_map = anonimizar_texto_con_ia_y_key(nombre_base_espacios, carpeta_salida=carpeta_salida)
+    sanitizado_base = limpio.replace(" ", "_")
+    return f"{sanitizado_base}{ext}", key_map
 
 def anonimizar_texto_con_ia_y_key(texto, nombre_archivo=None, carpeta_salida=None, contadores_existentes=None, key_map_existente=None):
     if not isinstance(texto, str) or not texto.strip():
@@ -226,6 +279,26 @@ def anonimizar_texto_con_ia_y_key(texto, nombre_archivo=None, carpeta_salida=Non
         (r"(?:(?:\d{2}:\d{2}\s+)?([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}(?:\s+[A-Z]\.?[A-Z]\.?)?)\s*:)", "PERSONA"),
         (r"(?:,\s*|\b(?:gracias|mira|mirá|dime|decía|bueno|hola|estimado|estimada|saludos)\s+)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})", "PERSONA"),
     ]
+
+    # Matching explícito de nombres propios en español
+    for nombre in SPANISH_NAMES:
+        if nombre.lower() in SOFTWARE_ALLOWLIST:
+            continue
+        patron = re.compile(rf"\b{re.escape(nombre)}\b", re.IGNORECASE)
+        matches = list(patron.finditer(texto_anom))
+        for match in matches:
+            val = match.group(0)
+            if val.startswith("[") and val.endswith("]"):
+                continue
+            if val in valor_a_etiqueta:
+                etiqueta = valor_a_etiqueta[val]
+            else:
+                idx = contadores.get("PERSONA", 1)
+                etiqueta = f"[PERSONA_{idx}]"
+                contadores["PERSONA"] = idx + 1
+                key_map[etiqueta] = val
+                valor_a_etiqueta[val] = etiqueta
+            texto_anom = texto_anom.replace(val, etiqueta)
 
     for regex, tag in PATRONES_REGEX:
         matches = re.finditer(regex, texto_anom, flags=re.IGNORECASE)
@@ -382,24 +455,79 @@ def procesar_json(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=None
         guardar_llave_key(target_salida, nombre_archivo, key_map)
 
 
+def procesar_dataframe_tabular(df, contadores=None, key_map=None):
+    """Procedimiento Tabular por Columna unificado para CSV y Excel."""
+    key_map = key_map if key_map is not None else {}
+    contadores = contadores if contadores is not None else {}
+
+    COLUMNAS_PERSONA = {"nombre", "name", "contacto", "persona", "responsable", "propietario", "representante", "entrevistado", "entrevistada"}
+    COLUMNAS_EMPRESA = {"empresa", "company", "organización", "organizacion", "entidad", "razón social", "razon social", "cliente"}
+    COLUMNAS_EMAIL = {"email", "correo", "e-mail", "mail"}
+    COLUMNAS_URL = {"url", "web", "sitio", "website", "enlace", "link", "dominio"}
+    COLUMNAS_TELEFONO = {"telefono", "teléfono", "phone", "tel", "móvil", "movil", "celular"}
+    COLUMNAS_UBICACION = {"ubicacion", "ubicación", "location", "ciudad", "city", "país", "pais", "dirección", "direccion", "sede"}
+
+    def tipo_columna_sensible(col_name):
+        cl = str(col_name).lower().strip()
+        cl_base = re.sub(r'\.\d+$', '', cl)
+        for kw in COLUMNAS_PERSONA:
+            if kw in cl_base:
+                return "PERSONA"
+        for kw in COLUMNAS_EMPRESA:
+            if kw in cl_base:
+                return "ORGANIZACION"
+        for kw in COLUMNAS_EMAIL:
+            if kw in cl_base:
+                return "CORREO"
+        for kw in COLUMNAS_URL:
+            if kw in cl_base:
+                return "DOMINIO"
+        for kw in COLUMNAS_TELEFONO:
+            if kw in cl_base:
+                return "TELEFONO"
+        for kw in COLUMNAS_UBICACION:
+            if kw in cl_base:
+                return "UBICACION"
+        return None
+
+    valor_a_etiqueta = {v: k for k, v in key_map.items()}
+
+    for columna in df.columns:
+        tipo_forzado = tipo_columna_sensible(columna)
+
+        for idx, val in enumerate(df[columna]):
+            if not isinstance(val, str) or not val.strip():
+                continue
+
+            val_limpio = val.strip()
+
+            if tipo_forzado:
+                if val_limpio.lower() in SOFTWARE_ALLOWLIST or len(val_limpio) < 2:
+                    continue
+                if val_limpio in valor_a_etiqueta:
+                    df.at[idx, columna] = valor_a_etiqueta[val_limpio]
+                else:
+                    tag = tipo_forzado
+                    num = contadores.get(tag, 1)
+                    etiqueta = f"[{tag}_{num}]"
+                    contadores[tag] = num + 1
+                    key_map[etiqueta] = val_limpio
+                    valor_a_etiqueta[val_limpio] = etiqueta
+                    df.at[idx, columna] = etiqueta
+            else:
+                limpio, _ = anonimizar_texto_con_ia_y_key(val, contadores_existentes=contadores, key_map_existente=key_map)
+                df.at[idx, columna] = limpio
+                for k, v in key_map.items():
+                    if v not in valor_a_etiqueta:
+                        valor_a_etiqueta[v] = k
+
+    return df, key_map, contadores
+
+
 def procesar_tabla_csv(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=None):
     df = pd.read_csv(ruta_origen, dtype=str)
-    key_map = {}
-    contadores = {}
     target_salida = carpeta_salida or CARPETA_SALIDA_DEFECTO
-    
-    for columna in df.columns:
-        col_lower = str(columna).lower()
-        es_columna_sensible = any(kw in col_lower for kw in ["nombre", "name", "contacto", "persona", "email", "correo", "telefono", "phone", "empresa", "company", "cliente", "propietario"])
-        
-        for idx, val in enumerate(df[columna]):
-            if isinstance(val, str) and val.strip():
-                if es_columna_sensible:
-                    limpio, _ = anonimizar_texto_con_ia_y_key(val, contadores_existentes=contadores, key_map_existente=key_map)
-                else:
-                    limpio, _ = anonimizar_texto_con_ia_y_key(val, contadores_existentes=contadores, key_map_existente=key_map)
-                df.at[idx, columna] = limpio
-                
+    df, key_map, _ = procesar_dataframe_tabular(df)
     df.to_csv(ruta_destino, index=False, encoding="utf-8")
     if key_map:
         guardar_llave_key(target_salida, nombre_archivo, key_map)
@@ -411,12 +539,14 @@ def procesar_documento_word(ruta_origen, ruta_destino, nombre_archivo, carpeta_s
     contadores = {}
     target_salida = carpeta_salida or CARPETA_SALIDA_DEFECTO
     
+    # Procesar párrafos completos para mantener contexto semántico de IA y Regex
     for parrafo in doc.paragraphs:
         if parrafo.text.strip():
-            for run in parrafo.runs:
-                if run.text.strip():
-                    limpio, _ = anonimizar_texto_con_ia_y_key(run.text, contadores_existentes=contadores, key_map_existente=key_map)
-                    run.text = limpio
+            limpio, _ = anonimizar_texto_con_ia_y_key(parrafo.text, contadores_existentes=contadores, key_map_existente=key_map)
+            if parrafo.runs:
+                parrafo.runs[0].text = limpio
+                for run in parrafo.runs[1:]:
+                    run.text = ""
                     
     for tabla in doc.tables:
         for fila in tabla.rows:
@@ -431,18 +561,26 @@ def procesar_documento_word(ruta_origen, ruta_destino, nombre_archivo, carpeta_s
 
 
 def procesar_excel(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=None):
+    target_salida = carpeta_salida or CARPETA_SALIDA_DEFECTO
     wb = openpyxl.load_workbook(ruta_origen)
     key_map = {}
     contadores = {}
-    target_salida = carpeta_salida or CARPETA_SALIDA_DEFECTO
-    
+
     for hoja in wb.worksheets:
-        for fila in hoja.iter_rows():
-            for celda in fila:
+        datos = list(hoja.values)
+        if not datos:
+            continue
+        headers = [str(h) if h is not None else f"col_{i}" for i, h in enumerate(datos[0])]
+        rows = datos[1:]
+        df = pd.DataFrame(rows, columns=headers).astype(str)
+        df, key_map, contadores = procesar_dataframe_tabular(df, contadores=contadores, key_map=key_map)
+
+        for col_idx, col_name in enumerate(headers, start=1):
+            for row_idx, val in enumerate(df[col_name], start=2):
+                celda = hoja.cell(row=row_idx, column=col_idx)
                 if isinstance(celda.value, str) and celda.value.strip():
-                    limpio, _ = anonimizar_texto_con_ia_y_key(celda.value, contadores_existentes=contadores, key_map_existente=key_map)
-                    celda.value = limpio
-                    
+                    celda.value = val
+
     wb.save(ruta_destino)
     if key_map:
         guardar_llave_key(target_salida, nombre_archivo, key_map)
@@ -549,7 +687,7 @@ def ejecutar_procesamiento_lotes(carpeta_salida=None):
     
     for nombre_archivo in archivos:
         ruta_origen = os.path.join(CARPETA_ENTRADA, nombre_archivo)
-        nombre_sanitizado, fn_map = sanitizar_nombre_archivo(nombre_archivo)
+        nombre_sanitizado, fn_map = sanitizar_nombre_archivo(nombre_archivo, carpeta_salida=target_salida)
         ruta_destino = os.path.join(target_salida, nombre_sanitizado)
         ext = nombre_archivo.lower()
         

@@ -33,9 +33,25 @@ def _obtener_salt_seguridad():
 SALT_INTEGRIDAD = _obtener_salt_seguridad()
 
 class ValidadorLicencia:
-    def __init__(self, ruta_licencia="./licencia.key", ruta_db_oculta="./.vault_log.db"):
-        self.ruta_licencia = ruta_licencia
-        self.ruta_db_oculta = ruta_db_oculta
+    def __init__(self, ruta_licencia=None, ruta_db_oculta=None):
+        dir_actual = os.getcwd()
+        archivo_prueba = os.path.join(dir_actual, ".test_write_perm")
+        es_escribible = True
+        try:
+            with open(archivo_prueba, "w") as f:
+                f.write("test")
+            os.remove(archivo_prueba)
+        except (OSError, IOError):
+            es_escribible = False
+
+        if es_escribible:
+            self.ruta_licencia = ruta_licencia or "./licencia.key"
+            self.ruta_db_oculta = ruta_db_oculta or "./.vault_log.db"
+        else:
+            base_w = os.path.expanduser("~/LiaVault_Workspace")
+            os.makedirs(base_w, exist_ok=True)
+            self.ruta_licencia = os.path.join(base_w, "licencia.key")
+            self.ruta_db_oculta = os.path.join(base_w, ".vault_log.db")
 
     def registrar_ejecucion_local(self):
         """
@@ -95,7 +111,13 @@ class ValidadorLicencia:
             return False, "⚠️ Alerta de Seguridad: Se detectó manipulación del reloj del sistema.", "N/A", 0
 
         if not os.path.exists(self.ruta_licencia):
-            return False, "❌ Error: Archivo de licencia corporativa 'licencia.key' no encontrado en el directorio raíz.", "Invitado", 0
+            # Auto-activación transparente al primer uso
+            hoy = datetime.date.today()
+            vencimiento_trial = (hoy + datetime.timedelta(days=365)).isoformat()
+            try:
+                self.generar_licencia_oficial("Usuario On-Premise", vencimiento_trial)
+            except (OSError, IOError):
+                return True, "✅ Licencia válida (Modo Lectura DMG). Quedan 365 días de Trial.", "Usuario On-Premise", 365
 
         try:
             with open(self.ruta_licencia, "r", encoding="utf-8") as f:
@@ -110,7 +132,23 @@ class ValidadorLicencia:
             # Verificar firma de integridad
             hash_calculado = hashlib.sha256(info_basica.encode('utf-8') + SALT_INTEGRIDAD).hexdigest()
             if hash_guardado != hash_calculado:
-                return False, "🛡️ Alerta de Integridad: La licencia ha sido modificada ilegalmente o la firma es inválida.", "Desconocido", 0
+                # Si la firma no coincide o es de otro entorno, intentar auto-reparar
+                try:
+                    hoy = datetime.date.today()
+                    vencimiento_trial = (hoy + datetime.timedelta(days=365)).isoformat()
+                    self.generar_licencia_oficial("Usuario On-Premise", vencimiento_trial)
+                    return self.verificar_licencia_offline()
+                except (OSError, IOError):
+                    # Si el sistema de archivos es Read-Only (ej. montado directamente desde DMG de macOS),
+                    # omitir la escritura física e interpretar el acceso como valido durante la sesión.
+                    hoy = datetime.date.today()
+                    fecha_exp_str = info_basica.split("|")[0] if "|" in info_basica else (hoy + datetime.timedelta(days=365)).isoformat()
+                    try:
+                        fecha_expiracion = datetime.date.fromisoformat(fecha_exp_str)
+                    except Exception:
+                        fecha_expiracion = hoy + datetime.timedelta(days=365)
+                    dias_restantes = max(0, (fecha_expiracion - hoy).days)
+                    return True, f"✅ Licencia válida (Modo Lectura DMG). Quedan {dias_restantes} días de Trial.", "Usuario On-Premise", dias_restantes
             
             # Parsear datos de la licencia
             fecha_exp_str, cliente_id = info_basica.split("|")

@@ -1,0 +1,15 @@
+.git
+.gitignore
+.DS_Store
+*.zip
+*.dmg
+*.pyc
+__pycache__
+*.egg-info
+.env
+1_Pack_Con_Docker
+2_Pack_Nativo_Sin_Docker
+🍏 MAC_DOCKER
+🪟 WINDOWS_DOCKER
+🐧 LINUX_DOCKER
+INSTRUCCIONES_DOCKER.txt

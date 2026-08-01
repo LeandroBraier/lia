@@ -8,6 +8,13 @@ import os
 import sys
 import platform
 import subprocess
+import tempfile
+
+# Solución defensiva para fallos de TMPDIR en macOS/Linux
+try:
+    tempfile.gettempdir()
+except Exception:
+    os.environ['TMPDIR'] = '/tmp'
 
 def construir_ejecutable_nativo():
     print("🔨 Iniciando construcción del ejecutable nativo de Lia Vault...")
@@ -24,8 +31,11 @@ def construir_ejecutable_nativo():
         "--onedir",
         "--name=LiaVault",
         "--add-data=assets:assets",
-        "--add-data=diccionario_corporativo.txt:.",
+        "--add-data=config:config",
         "--add-data=licencia.key:.",
+        "--add-data=metadata.json:.",
+        "--add-data=app_offline.py:.",
+        "--add-data=validador.py:.",
         "--hidden-import=spacy",
         "--hidden-import=es_core_news_sm",
         "--hidden-import=presidio_analyzer",
