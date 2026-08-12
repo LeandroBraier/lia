@@ -11,7 +11,15 @@ export const SOFTWARE_ALLOWLIST = new Set([
   'windows', 'office', 'excel', 'word', 'powerpoint', 'google', 'microsoft',
   'python', 'docker', 'react', 'vite', 'node', 'express', 'spacy', 'presidio',
   'easyocr', 'pdf', 'csv', 'txt', 'docx', 'xlsx', 'json', 'html', 'css', 'javascript',
-  'typescript', 'flet', 'github', 'gitlab', 'slack', 'teams', 'zoom'
+  'typescript', 'flet', 'github', 'gitlab', 'slack', 'teams', 'zoom',
+  'apoderado', 'apoderada', 'titular', 'presidente', 'presidenta', 'vicepresidente', 
+  'vicepresidenta', 'secretario', 'secretaria', 'vocal', 'administrador', 'administradora', 
+  'socio', 'socia', 'contratante', 'proveedora', 'receptora', 'divulgadora', 'parte', 'partes', 
+  'objeto', 'definiciones', 'excepciones', 'devolución', 'destrucción', 'incumplimiento', 
+  'duración', 'jurisdicción', 'anexo', 'anexos', 'acuerdo', 'contrato', 'convenio', 'reunidos', 
+  'exclusiones', 'primera', 'segunda', 'tercera', 'cuarta', 'quinta', 'sexta', 'séptima', 
+  'octava', 'novena', 'décima', 'primero', 'segundo', 'tercero', 'cuarto', 'quinto', 'sexto', 
+  'séptimo', 'octavo', 'noveno', 'décimo', 'información', 'confidencial', 'confidencialidad'
 ]);
 
 // Expresiones Regulares para datos PII en Español y Seguridad
@@ -35,7 +43,8 @@ const SPANISH_NAMES = [
   "Carlos Mendoza", "Santiago", "Alejandro Gómez", "Juan Pérez", "María Rodríguez", 
   "Laura Martínez", "Andrés Felipe", "Sofía Castro", "Santiago Valencia", "Gabriela",
   "Diego Armando", "Carlos", "Juan", "Gómez", "Mendoza", "Alejandro", "Sonia", "Beatriz",
-  "Laura", "Noelia", "Pedro", "Ana", "Lucía", "Javier", "Martín", "Elena", "Carmen"
+  "Laura", "Noelia", "Pedro", "Ana", "Lucía", "Javier", "Martín", "Elena", "Carmen",
+  "Lucila", "Ollesch", "Leandro", "Braier", "Lucila Fernanda Ollesch", "Leandro Braier"
 ];
 
 const SPANISH_LOCATIONS = [
@@ -152,6 +161,19 @@ export function detectAndRedact(
   processMatch(SPEAKER_TAG_REGEX, 'Persona (Interlocutor)', 'PERSONA', (val) => !isSoftwareOrPublicTerm(val));
 
   // 10. Nombres Propios de Personas (NLU contextual para Español)
+  const GENERIC_FULL_NAME_REGEX = /\b[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})+\b/g;
+  const ALL_CAPS_FULL_NAME_REGEX = /\b[A-ZÁÉÍÓÚÑ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ]{2,})+\b/g;
+
+  processMatch(GENERIC_FULL_NAME_REGEX, 'Persona (Nombre Completo)', 'PERSONA', (val) => {
+    const words = val.toLowerCase().split(/\s+/);
+    return !words.some((w) => isSoftwareOrPublicTerm(w));
+  });
+
+  processMatch(ALL_CAPS_FULL_NAME_REGEX, 'Persona (Mayúsculas)', 'PERSONA', (val) => {
+    const words = val.toLowerCase().split(/\s+/);
+    return !words.some((w) => isSoftwareOrPublicTerm(w));
+  });
+
   SPANISH_NAMES.forEach((name) => {
     if (isSoftwareOrPublicTerm(name)) return;
     const regex = new RegExp(`\\b${name}\\b`, 'gi');

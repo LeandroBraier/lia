@@ -449,13 +449,13 @@ async def main(page: ft.Page):
         if opciones and not dd_archivo_origen_key.value:
             dd_archivo_origen_key.value = opciones[0]
 
-    # --- FILE PICKER (patrón original con await) ---
+    # --- FILE PICKER (registrado via ServiceRegistry interno de Flet 0.86) ---
     global_file_picker = ft.FilePicker()
-    page.services.extend([global_file_picker])
+    page._services.register_service(global_file_picker)
 
     async def click_abrir_picker_documentos(e):
         try:
-            files = await global_file_picker.pick_files(allow_multiple=True, with_data=True)
+            files = await global_file_picker.pick_files(allow_multiple=True, with_data=True, cancel_upload_on_window_blur=False)
             if files:
                 for f in files:
                     dest = os.path.join(CARPETA_ENTRADA, f.name)
@@ -471,7 +471,7 @@ async def main(page: ft.Page):
 
     async def click_abrir_picker_diccionario(e):
         try:
-            files = await global_file_picker.pick_files(with_data=True)
+            files = await global_file_picker.pick_files(with_data=True, cancel_upload_on_window_blur=False)
             if files:
                 for f in files:
                     contenido = None
@@ -493,7 +493,7 @@ async def main(page: ft.Page):
 
     async def click_abrir_picker_key_traduccion(e):
         try:
-            files = await global_file_picker.pick_files(with_data=True)
+            files = await global_file_picker.pick_files(with_data=True, cancel_upload_on_window_blur=False)
             if files and files[0]:
                 f = files[0]
                 content_str = None
@@ -517,7 +517,8 @@ async def main(page: ft.Page):
 
     async def click_abrir_picker_doc_traduccion(e):
         try:
-            files = await global_file_picker.pick_files(with_data=True)
+            files = await global_file_picker.pick_files(with_data=True, cancel_upload_on_window_blur=False)
+
             if files and files[0]:
                 f = files[0]
                 nonlocal archivo_anonimizado_traduccion_path, nombre_archivo_traduccion_original

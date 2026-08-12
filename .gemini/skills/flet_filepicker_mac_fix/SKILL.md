@@ -12,10 +12,16 @@ Esta skill documenta la resolución técnica de errores críticos de `FilePicker
 
 ## 🚨 Errores Frecuentes y Causas Raíz
 
-### 1. `Unknown control: FilePicker` en Flet Web
+### 1. `Unknown control: FilePicker` en Flet Web (0.86+)
 - **Síntoma:** Aparece un recuadro o banner rojo en la interfaz Web indicando `Unknown control: FilePicker`.
-- **Causa Raíz:** Usar `page.overlay.append(picker)` en Flet Web. El motor gráfico de Flutter/Web intenta renderizar el `FilePicker` como un widget visual cuando en realidad es un servicio en segundo plano.
-- **Solución Obligatoria:** Registrar los `FilePicker` en `page.services.extend([picker])`.
+- **Causa Raíz (Flet ≥ 0.86):** En Flet 0.86+, `page.services` es un proxy a `view.services`, que es una lista Python plana con `metadata={"skip": True}`. Esto significa que agregar controles ahí (`page.services.extend(...)` o `page.services.append(...)`) **NO registra el servicio** en el `ServiceRegistry` interno de la Page, y **NO lo sincroniza** con el cliente Flutter. El FilePicker queda en un limbo: ni se monta, ni se renderiza, ni se comunica con el frontend. Usar `page.overlay.append(picker)` tampoco funciona porque intenta renderizarlo como widget visual.
+- **Solución Obligatoria (Flet ≥ 0.86):** Registrar el `FilePicker` directamente en el `ServiceRegistry` interno de la Page:
+  ```python
+  picker = ft.FilePicker()
+  page._services.register_service(picker)
+  ```
+  Esto invoca `register_service()` en la clase `ServiceRegistry`, que agrega el servicio a `_services`, llama a `__internal_update()`, y sincroniza el control con el cliente Flutter correctamente.
+- **NO usar:** `page.services.extend([picker])`, `page.services.append(picker)`, ni `page.overlay.append(picker)`.
 
 ### 2. Incompatibilidad de `on_result` con `await pick_files()`
 - **Síntoma:** La ventana de selección abre pero al elegir archivos no se cargan ni se refresca la vista (`pick_files` bloqueado).
@@ -54,7 +60,32 @@ Esta skill documenta la resolución técnica de errores críticos de `FilePicker
       pass
   ```
 
+### 6. Cancelación prematura del diálogo en macOS Web (`cancel_upload_on_window_blur=False`)
+- **Síntoma:** En navegadores macOS (Safari/Chrome), al presionar el botón de selección de archivos, el cuadro de diálogo se cancela inmediatamente o no retorna archivos seleccionados.
+- **Causa Raíz:** En Flet Web, por defecto `cancel_upload_on_window_blur=True`. Al abrir el selector nativo del sistema operativo en Mac, la ventana del navegador pierde el foco (evento `blur`), lo que hace que Flet interprete el desenfoque como una cancelación explícita por parte del usuario.
+- **Solución Obligatoria:** Pasar siempre `cancel_upload_on_window_blur=False` al invocar `pick_files()`:
+  ```python
+  files = await picker.pick_files(allow_multiple=True, with_data=True, cancel_upload_on_window_blur=False)
+  ```
+
+### 7. Persistencia del error por scripts de instalación / caché local (`SCRIPT_DIR/..`)
+- **Síntoma:** El código en el repositorio ya incluye `page._services.register_service(...)`, pero en la máquina del usuario sigue apareciendo `Unknown control: FilePicker`.
+- **Causa Raíz:** Al mover scripts lanzadores (`.command` o `.sh`) dentro de subcarpetas (ej. `🍏 MAC_INSTALLER/`), si el script usa `DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"` sin subir al directorio padre (`$SCRIPT_DIR/..`), el comando de instalación copia solo la subcarpeta en vez de la raíz del proyecto. El sistema del usuario termina ejecutando una instalación vieja en `~/Applications/...` que aún contiene el patrón obsoleto `page.overlay.append()`.
+- **Solución Obligatoria:** 
+  1. Resolver el directorio raíz del paquete subiendo desde la subcarpeta lanzadora:
+     ```bash
+     SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+     DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
+     ```
+  2. Limpiar instalaciones viejas antes de copiar para prevenir residuos de versiones anteriores:
+     ```bash
+     if [ -d "$TARGET_DIR" ]; then
+         rm -rf "$TARGET_DIR"
+     fi
+     ```
+
 ---
+
 
 ## 🛠️ Patrón Canónico Recomendado para Flet Web & Desktop
 
@@ -69,13 +100,13 @@ except AttributeError:
     pass
 
 async def main(page: ft.Page):
-    # Instanciación y registro en page.services
+    # Instanciación y registro via ServiceRegistry interno (Flet 0.86+)
     picker_documentos = ft.FilePicker()
-    page.services.extend([picker_documentos])
+    page._services.register_service(picker_documentos)
 
     async def click_abrir_documentos(e):
         try:
-            files = await picker_documentos.pick_files(allow_multiple=True, with_data=True)
+            files = await picker_documentos.pick_files(allow_multiple=True, with_data=True, cancel_upload_on_window_blur=False)
             if files:
                 for f in files:
                     dest = os.path.join("./entrada", f.name)

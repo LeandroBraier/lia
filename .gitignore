@@ -22,6 +22,8 @@ __pycache__/
 LiaVault_Packs_Descarga/*
 !LiaVault_Packs_Descarga/.gitkeep
 Referencias/
+App de Inspiracion/
+Apps de inspiración/
 
 # Block massive dependency folders
 node_modules/

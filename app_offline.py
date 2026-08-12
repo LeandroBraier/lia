@@ -56,49 +56,18 @@ except ImportError:
     cv2 = None
     Image = None
 
-# 1. Configuración de rutas corporativas defensivas
-def _obtener_directorio_trabajo_base():
-    """
-    Retorna un directorio base de trabajo que tenga permisos de escritura.
-    Si el sistema de archivos actual es Read-Only (ej: DMG montado de macOS en /Volumes/),
-    se utiliza un directorio seguro en $HOME/LiaVault_Workspace.
-    """
-    dir_actual = os.getcwd()
-    
-    # Si la ruta está montada bajo /Volumes/ (DMG de macOS), forzar directamente espacio personal escribible
-    if dir_actual.startswith("/Volumes/") or "/Volumes/" in dir_actual:
-        dir_usuario = os.path.expanduser("~/LiaVault_Workspace")
-        try:
-            os.makedirs(dir_usuario, exist_ok=True)
-            return dir_usuario
-        except Exception:
-            dir_tmp = "/tmp/LiaVault_Workspace"
-            os.makedirs(dir_tmp, exist_ok=True)
-            return dir_tmp
+# 1. Configuración de rutas corporativas
+# Detectar si estamos en un sistema de solo lectura (ej: DMG montado en macOS)
+_base_dir = os.path.dirname(os.path.abspath(__file__))
+if not os.access(_base_dir, os.W_OK) or _base_dir.startswith("/Volumes/"):
+    # Sistema de solo lectura: usar carpeta en el Home del usuario
+    _base_dir = os.path.join(os.path.expanduser("~"), "LiaVault")
 
-    archivo_prueba = os.path.join(dir_actual, ".test_write_perm")
-    try:
-        with open(archivo_prueba, "w") as f:
-            f.write("test")
-        os.remove(archivo_prueba)
-        return dir_actual
-    except Exception:
-        dir_usuario = os.path.expanduser("~/LiaVault_Workspace")
-        try:
-            os.makedirs(dir_usuario, exist_ok=True)
-            return dir_usuario
-        except Exception:
-            dir_tmp = "/tmp/LiaVault_Workspace"
-            os.makedirs(dir_tmp, exist_ok=True)
-            return dir_tmp
-
-BASE_DIR_WRITABLE = _obtener_directorio_trabajo_base()
-
-CARPETA_ENTRADA = os.path.join(BASE_DIR_WRITABLE, "entrada")
-CARPETA_SALIDA_DEFECTO = os.path.join(BASE_DIR_WRITABLE, "salida")
+CARPETA_ENTRADA = os.path.join(_base_dir, "entrada")
+CARPETA_SALIDA_DEFECTO = os.path.join(_base_dir, "Archivos seguros de Checkpoint Ley IA")
 CARPETA_SALIDA = CARPETA_SALIDA_DEFECTO
-CARPETA_PROCESADOS = os.path.join(BASE_DIR_WRITABLE, "procesados")
-CARPETA_CONFIG = os.path.join(BASE_DIR_WRITABLE, "config")
+CARPETA_PROCESADOS = os.path.join(_base_dir, "procesados")
+CARPETA_CONFIG = os.path.join(_base_dir, "config")
 RUTA_DICCIONARIO = os.path.join(CARPETA_CONFIG, "diccionario_exclusiones.txt")
 
 try:
@@ -190,6 +159,15 @@ SOFTWARE_ALLOWLIST = {
     'primer', 'segundo', 'curso', 'ciclo', 'formación', 'profesional', 'básica',
     'centros', 'escolares', 'formativos', 'dato', 'nacional',
     'rol', 'ajuste', 'score', 'rating', 'icp', 'lookalikes', 'lista',
+    # Términos legales y estructurales de NDAs para evitar falsos positivos
+    'apoderado', 'apoderada', 'titular', 'presidente', 'presidenta', 'vicepresidente', 
+    'vicepresidenta', 'secretario', 'secretaria', 'vocal', 'administrador', 'administradora', 
+    'socio', 'socia', 'contratante', 'proveedora', 'receptora', 'divulgadora', 'parte', 'partes', 
+    'objeto', 'definiciones', 'excepciones', 'devolución', 'destrucción', 'incumplimiento', 
+    'duración', 'jurisdicción', 'anexo', 'anexos', 'acuerdo', 'contrato', 'convenio', 'reunidos', 
+    'exclusiones', 'primera', 'segunda', 'tercera', 'cuarta', 'quinta', 'sexta', 'séptima', 
+    'octava', 'novena', 'décima', 'primero', 'segundo', 'tercero', 'cuarto', 'quinto', 'sexto', 
+    'séptimo', 'octavo', 'noveno', 'décimo', 'información', 'confidencial', 'confidencialidad'
 }
 
 SPANISH_NAMES = [
@@ -227,6 +205,15 @@ def sanitizar_nombre_archivo(nombre_archivo, carpeta_salida=None):
     sanitizado_base = limpio.replace(" ", "_")
     return f"{sanitizado_base}{ext}", key_map
 
+def all_caps_to_title_case(text):
+    exclusions = {'DNI', 'NIE', 'NIF', 'IVA', 'NDA'}
+    def replace_word(match):
+        word = match.group(0)
+        if word in exclusions:
+            return word
+        return word.title()
+    return re.sub(r'\b[A-ZÁÉÍÓÚÑ]{2,}\b', replace_word, text)
+
 def anonimizar_texto_con_ia_y_key(texto, nombre_archivo=None, carpeta_salida=None, contadores_existentes=None, key_map_existente=None):
     if not isinstance(texto, str) or not texto.strip():
         return texto, {}
@@ -244,12 +231,15 @@ def anonimizar_texto_con_ia_y_key(texto, nombre_archivo=None, carpeta_salida=Non
     # 1. Presidio AI Engine (si está disponible)
     if analyzer:
         try:
+            # Preprocesar mayúsculas sostenidas a Title Case para asegurar detección por spaCy
+            texto_analisis = all_caps_to_title_case(texto_anom)
             resultados = analyzer.analyze(
-                text=texto_anom,
+                text=texto_analisis,
                 language="es",
                 entities=["PERSON", "LOCATION", "ORGANIZATION", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD"]
             )
             for pii in sorted(resultados, key=lambda x: x.start, reverse=True):
+                # Recuperar el valor original del texto con las mayúsculas originales
                 val = texto_anom[pii.start:pii.end].strip()
                 if not val or val.lower() in SOFTWARE_ALLOWLIST or len(val) < 2:
                     continue
@@ -263,21 +253,31 @@ def anonimizar_texto_con_ia_y_key(texto, nombre_archivo=None, carpeta_salida=Non
                     key_map[etiqueta] = val
                     valor_a_etiqueta[val] = etiqueta
 
+                # Reemplazar únicamente en la posición detectada para evitar falsos positivos
                 texto_anom = texto_anom[:pii.start] + etiqueta + texto_anom[pii.end:]
         except Exception as ex:
             print(f"Error analizando Presidio: {ex}")
 
+    # Actualizar mapa de reversión después del procesamiento de Presidio
+    valor_a_etiqueta = {val: k for k, val in key_map.items()}
+
     # 2. Expresiones Regulares Específicas
+    # Las expresiones de vocativos y tags de interlocutores son sensibles a mayúsculas para evitar clasificar preposiciones/verbos
     PATRONES_REGEX = [
-        (r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "CORREO"),
-        (r"\b(?:https?://)?(?:www\.)?([a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.(?:com|es|org|net|co|io|gov|edu))\b", "DOMINIO"),
-        (r"\b(?:sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{20,}|bearer\s+[a-zA-Z0-9._\-]+|(?:password|clave|contraseña|pwd|api_key|secret|token)\s*[:=]\s*['\"]?([^\s'\"]{4,})['\"]?)\b", "CLAVE"),
-        (r"(?:@([a-zA-Z0-9._-]+)|\b(?:user|usuario|username|interlocutor)\s*[:=]\s*['\"]?([a-zA-Z0-9._-]+)['\"]?)", "USUARIO"),
-        (r"\b(?:\d[ -]?){13,16}\b", "TARJETA_CREDITO"),
-        (r"\+?\b\d{1,4}[-\s]?\d{3,4}[-\s]?\d{3,4}\b", "TELEFONO"),
-        (r"\b\d{7,10}[-\s]?[A-Z0-9]?\b", "ID_OFICIAL"),
-        (r"(?:(?:\d{2}:\d{2}\s+)?([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}(?:\s+[A-Z]\.?[A-Z]\.?)?)\s*:)", "PERSONA"),
-        (r"(?:,\s*|\b(?:gracias|mira|mirá|dime|decía|bueno|hola|estimado|estimada|saludos)\s+)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})", "PERSONA"),
+        (re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", re.IGNORECASE), "CORREO"),
+        (re.compile(r"\b(?:https?://)?(?:www\.)?([a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.(?:com|es|org|net|co|io|gov|edu))\b", re.IGNORECASE), "DOMINIO"),
+        (re.compile(r"\b(?:sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{20,}|bearer\s+[a-zA-Z0-9._\-]+|(?:password|clave|contraseña|pwd|api_key|secret|token)\s*[:=]\s*['\"]?([^\s'\"]{4,})['\"]?)\b", re.IGNORECASE), "CLAVE"),
+        (re.compile(r"(?:@([a-zA-Z0-9._-]+)|\b(?:user|usuario|username|interlocutor)\s*[:=]\s*['\"]?([a-zA-Z0-9._-]+)['\"]?)", re.IGNORECASE), "USUARIO"),
+        (re.compile(r"\b(?:\d[ -]?){13,16}\b"), "TARJETA_CREDITO"),
+        (re.compile(r"\+?\b\d{1,4}[-\s]?\d{3,4}[-\s]?\d{3,4}\b"), "TELEFONO"),
+        (re.compile(r"\b\d{7,10}[-\s]?[A-Z0-9]?\b"), "ID_OFICIAL"),
+        # Nombres en mayúsculas sostenidas (ALL CAPS) y nombres completos tipo Title Case
+        (re.compile(r"\b[A-ZÁÉÍÓÚÑ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ]{2,})+\b"), "PERSONA"),
+        (re.compile(r"\b[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})+\b"), "PERSONA"),
+        # Fórmulas de introducción legal (ej: representada por, en este acto por) para capturar nombres incluso cortados
+        (re.compile(r"\b(?:representado|representada|firmado|firma|por)\s+(?:en\s+este\s+acto\s+)?(?:por\s+)?([A-ZÁÉÍÓÚÑ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ]{2,})*|[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*)\b"), "PERSONA"),
+        (re.compile(r"(?:(?:\d{2}:\d{2}\s+)?([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}(?:\s+[A-Z]\.?[A-Z]\.?)?)\s*:)"), "PERSONA"),
+        (re.compile(r"(?:,\s*|\b(?:gracias|mira|mirá|dime|decía|bueno|hola|estimado|estimada|saludos)\s+)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})"), "PERSONA"),
     ]
 
     # Matching explícito de nombres propios en español
@@ -298,10 +298,10 @@ def anonimizar_texto_con_ia_y_key(texto, nombre_archivo=None, carpeta_salida=Non
                 contadores["PERSONA"] = idx + 1
                 key_map[etiqueta] = val
                 valor_a_etiqueta[val] = etiqueta
-            texto_anom = texto_anom.replace(val, etiqueta)
+            texto_anom = re.sub(rf"\b{re.escape(val)}\b", etiqueta, texto_anom)
 
     for regex, tag in PATRONES_REGEX:
-        matches = re.finditer(regex, texto_anom, flags=re.IGNORECASE)
+        matches = regex.finditer(texto_anom)
         for match in list(matches):
             val = match.group(1) if match.groups() and match.group(1) else match.group(0)
             if not val or (val.startswith("[") and val.endswith("]")):
@@ -318,7 +318,11 @@ def anonimizar_texto_con_ia_y_key(texto, nombre_archivo=None, carpeta_salida=Non
                 key_map[etiqueta] = val
                 valor_a_etiqueta[val] = etiqueta
 
-            texto_anom = texto_anom.replace(val, etiqueta)
+            # Reemplazar con límites de palabra para tipos textuales y exacto para secuencias/datos
+            if tag in ["PERSONA", "ORGANIZACION", "UBICACION", "ID_OFICIAL"]:
+                texto_anom = re.sub(rf"\b{re.escape(val)}\b", etiqueta, texto_anom)
+            else:
+                texto_anom = texto_anom.replace(val, etiqueta)
 
     if nombre_archivo and key_map:
         guardar_llave_key(target_salida, nombre_archivo, key_map)

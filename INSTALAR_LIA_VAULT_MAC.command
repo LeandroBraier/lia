@@ -1,9 +1,16 @@
 #!/bin/bash
 # Script instalador/desbloqueador automático para Mac
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# DIR apunta al directorio raíz del DMG (padre de 🍏 MAC_INSTALLER)
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
 TARGET_DIR="$HOME/Applications/LiaVault"
 
-echo "📦 Instalando Lia Vault en su carpeta de Aplicaciones..."
+if [ -d "$TARGET_DIR" ]; then
+    echo "🧹 Eliminando instalación previa y residuos viejos de Lia Vault..."
+    rm -rf "$TARGET_DIR"
+fi
+
+echo "📦 Instalando Lia Vault desde cero en su carpeta de Aplicaciones..."
 mkdir -p "$TARGET_DIR"
 cp -R "$DIR/"* "$TARGET_DIR/" 2>/dev/null
 
@@ -15,11 +22,10 @@ echo "✅ Instalación y desbloqueo completados."
 echo "🚀 Iniciando Lia Vault..."
 
 cd "$TARGET_DIR"
-if command -v python3 &>/dev/null; then
-    python3 app_grafica.py
-elif command -v python &>/dev/null; then
-    python app_grafica.py
+if [ -f "$TARGET_DIR/iniciar_lia_vault_mac.command" ]; then
+    exec "$TARGET_DIR/iniciar_lia_vault_mac.command"
 else
-    echo "❌ Error: Python 3 no está instalado en este sistema."
+    echo "❌ Error: No se encontró el script de inicio en $TARGET_DIR."
     read -p "Presiona Enter para salir..."
 fi
+
