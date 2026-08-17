@@ -18,7 +18,46 @@ echo "=================================================="
 
 xattr -cr "$APP_DIR" 2>/dev/null || true
 
-# 1. Si existe la aplicación compilada standalone en dist/LiaVault/LiaVault, abrirla directamente
+# Liberar el puerto 8502 si quedó una instancia previa colgada
+lsof -ti:8502 | xargs kill -9 2>/dev/null || true
+
+# 1. Si existe la aplicación compilada standalone (.app o binario), abrirla directamente
+if [ -d "$APP_DIR/dist/LiaVault.app" ]; then
+    echo "🚀 Lanzando aplicación LiaVault.app..."
+    open "$APP_DIR/dist/LiaVault.app"
+    (
+        COUNT=0
+        while [ $COUNT -lt 20 ]; do
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8502/ 2>/dev/null)
+            if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 302 ]; then
+                open http://localhost:8502
+                break
+            fi
+            sleep 1
+            COUNT=$((COUNT+1))
+        done
+    ) &
+    exit 0
+fi
+
+if [ -d "$APP_DIR/LiaVault.app" ]; then
+    echo "🚀 Lanzando aplicación LiaVault.app..."
+    open "$APP_DIR/LiaVault.app"
+    (
+        COUNT=0
+        while [ $COUNT -lt 20 ]; do
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8502/ 2>/dev/null)
+            if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 302 ]; then
+                open http://localhost:8502
+                break
+            fi
+            sleep 1
+            COUNT=$((COUNT+1))
+        done
+    ) &
+    exit 0
+fi
+
 if [ -f "$APP_DIR/dist/LiaVault/LiaVault" ]; then
     chmod +x "$APP_DIR/dist/LiaVault/LiaVault"
     "$APP_DIR/dist/LiaVault/LiaVault"

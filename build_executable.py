@@ -44,13 +44,33 @@ def construir_ejecutable_nativo():
         "--hidden-import=fitz",
         "--hidden-import=openpyxl",
         "--hidden-import=docx",
-        "app_grafica.py"
+        "--collect-all=es_core_news_sm",
+        "--collect-all=presidio_analyzer",
+        "--collect-all=presidio_anonymizer",
+        "--collect-all=flet",
+        "--collect-all=flet_web",
+        "--collect-all=flet_core",
+        "--copy-metadata=spacy",
+        "--copy-metadata=es_core_news_sm",
     ]
+
+    if os.path.exists("assets/icon.icns"):
+        cmd.append("--icon=assets/icon.icns")
+
+    if system == "Darwin":
+        cmd.extend(["--windowed", "--osx-bundle-identifier=com.liavault.app"])
+    else:
+        cmd.append("--console")
+
+    cmd.append("app_grafica.py")
     
     print("📦 Ejecutando comando de compilación PyInstaller...")
     subprocess.run(cmd, check=True)
     
-    print("✅ Compilación exitosa. El paquete ejecutable se encuentra en la carpeta './dist/LiaVault'.")
+    if system == "Darwin":
+        print("✅ Compilación exitosa. El paquete ejecutable .app se encuentra en './dist/LiaVault.app'.")
+    else:
+        print("✅ Compilación exitosa. El paquete ejecutable se encuentra en './dist/LiaVault'.")
 
 if __name__ == "__main__":
     construir_ejecutable_nativo()

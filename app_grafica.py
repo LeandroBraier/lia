@@ -1154,5 +1154,14 @@ texto_restaurado = desanonimizar_texto("[PERSONA_1]", {"[PERSONA_1]": "Juan Pér
     cargar_interfaz_principal()
 
 
+def liberar_puerto(puerto=8502):
+    import subprocess, platform
+    if platform.system() in ("Darwin", "Linux"):
+        try:
+            subprocess.run(f"lsof -ti:{puerto} | xargs kill -9", shell=True, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+        except Exception:
+            pass
+
 if __name__ == "__main__":
+    liberar_puerto(8502)
     ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=8502, host="0.0.0.0")
