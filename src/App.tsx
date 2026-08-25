@@ -460,24 +460,24 @@ export default function App() {
               <span className="text-[9px] font-extrabold text-amber-600 tracking-[0.25em] uppercase block mb-0.5">
                 UNA APLICACIÓN DESARROLLADA POR KOR.®
               </span>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-black tracking-tight text-zinc-900 leading-none">LIA VAULT</h1>
-                <span className="text-[10px] uppercase tracking-widest font-mono bg-amber-50 text-amber-700 px-2 py-0.5 border border-amber-200 rounded-full font-bold">
+              <div className="flex items-center gap-2.5">
+                <h1 className="text-2xl font-black tracking-tight text-zinc-900 leading-none">LIA VAULT</h1>
+                <span className="text-xs uppercase tracking-wider font-mono bg-amber-50 text-amber-700 px-2.5 py-0.5 border border-amber-200 rounded-full font-bold">
                   On-Premise
                 </span>
               </div>
-              <p className="text-[11px] text-zinc-500 font-sans mt-0.5">100% Offline PII Anonymization Suite</p>
+              <p className="text-xs text-zinc-500 font-medium mt-1">Suite de Privacidad y Anonimización 100% On-Premise</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <div className="hidden md:flex items-center gap-2 bg-zinc-100 border border-zinc-200 px-3.5 py-1.5 rounded-full text-xs font-mono">
+          <div className="flex items-center gap-3">
+            <div className="hidden md:flex items-center gap-2 bg-zinc-100 border border-zinc-200 px-4 py-2 rounded-full text-xs font-mono">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping"></span>
               <span className="text-zinc-600">Servidor Local: </span>
               <span className="text-amber-600 font-bold">127.0.0.1:8502 (LAN)</span>
             </div>
 
-            <div className="flex items-center gap-2 bg-zinc-100 border border-zinc-200 px-3 py-1.5 rounded-lg text-xs font-mono">
+            <div className="flex items-center gap-2 bg-zinc-100 border border-zinc-200 px-4 py-2 rounded-xl text-xs font-mono">
               <CheckCircle2 className="h-4 w-4 text-emerald-600" />
               <span className="text-zinc-600 hidden sm:inline">Licencia: </span>
               <span className="text-emerald-600 font-bold">Trial Activo (365d)</span>
@@ -538,18 +538,24 @@ export default function App() {
               </button>
             </div>
 
-            {/* WIDGET DE ADVERTENCIA DE PRIVACIDAD */}
-            <div className="bg-white border border-zinc-200 rounded-2xl p-5 space-y-4 shadow-sm">
+            {/* WIDGET DE PRIVACIDAD LOCAL */}
+            <div className="bg-white border border-zinc-200 rounded-2xl p-5 space-y-3 shadow-sm">
               <div className="flex items-center gap-2 text-emerald-600">
-                <Lock className="h-4.5 w-4.5" />
-                <h3 className="text-xs font-bold uppercase tracking-wider">Compromiso Offline</h3>
+                <Shield className="h-4.5 w-4.5" />
+                <h3 className="text-xs font-bold uppercase tracking-wider">Privacidad 100% Local</h3>
               </div>
               <p className="text-xs text-zinc-600 leading-relaxed font-sans">
-                Lia Vault opera de forma <strong>100% aislada</strong> en su navegador. Ningún documento o cadena de texto es transmitida a internet. Todo el procesamiento OCR e IA se calcula utilizando el motor WebAssembly y regex de Lia Corp.
+                Tus documentos se procesan exclusivamente en este equipo. Ningún dato sensible sale a internet ni se almacena en la nube.
               </p>
-              <div className="text-[10px] text-zinc-500 font-mono flex items-center gap-1.5">
-                <Check className="h-3 w-3 text-emerald-600" />
-                <span>Sin trackers, sin cookies en la nube.</span>
+              <div className="space-y-1 pt-1">
+                <div className="text-[11px] text-zinc-500 font-mono flex items-center gap-1.5">
+                  <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                  <span>Cero conexiones externas</span>
+                </div>
+                <div className="text-[11px] text-zinc-500 font-mono flex items-center gap-1.5">
+                  <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                  <span>Procesamiento local seguro</span>
+                </div>
               </div>
             </div>
           </div>

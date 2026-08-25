@@ -620,45 +620,45 @@ async def main(page: ft.Page):
 
     # --- INTERFAZ PRINCIPAL SUITE LIA VAULT ---
     def cargar_interfaz_principal():
-        logo_img = ft.Image(src=f"data:image/svg+xml;base64,{LOGO_BASE64}", width=38, height=38, fit="contain")
+        logo_img = ft.Image(src=f"data:image/svg+xml;base64,{LOGO_BASE64}", width=44, height=44, fit="contain")
         
         header_brand = ft.Column([
             ft.Row([
                 logo_img,
-                ft.Text("LIA VAULT", size=24, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                ft.Container(content=ft.Text("ON-PREMISE", size=10, weight=ft.FontWeight.BOLD, color=ACCENT_ORANGE), bgcolor="#3B2506", padding=3, border_radius=4)
-            ], spacing=8),
-            ft.Text("100% Offline PII Anonymization Suite", size=11, color=TEXT_MUTED)
-        ], spacing=2)
+                ft.Text("LIA VAULT", size=26, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+                ft.Container(content=ft.Text("ON-PREMISE", size=11, weight=ft.FontWeight.BOLD, color=ACCENT_ORANGE), bgcolor="#3B2506", padding=ft.padding.symmetric(horizontal=8, vertical=3), border_radius=4)
+            ], spacing=10),
+            ft.Text("Suite de Privacidad y Anonimización 100% On-Premise", size=13, weight=ft.FontWeight.W_500, color=TEXT_MUTED)
+        ], spacing=4)
 
         status_pills = ft.Row([
             ft.Container(
                 content=ft.Row([
-                    ft.Icon(ft.icons.CIRCLE, color=EMERALD_GREEN, size=10),
-                    ft.Text("Servidor local: 127.0.0.1:8502 (LAN)", size=11, color=NEON_BLUE, weight=ft.FontWeight.W_600)
-                ], spacing=6),
-                bgcolor=SURFACE_CARD, padding=6, border_radius=16, border=ft.border.all(1, "#334155")
+                    ft.Icon(ft.icons.CIRCLE, color=EMERALD_GREEN, size=11),
+                    ft.Text("Servidor local: 127.0.0.1:8502 (LAN)", size=12, color=NEON_BLUE, weight=ft.FontWeight.W_600)
+                ], spacing=8),
+                bgcolor=SURFACE_CARD, padding=ft.padding.symmetric(horizontal=12, vertical=8), border_radius=16, border=ft.border.all(1, "#334155")
             ),
             ft.Container(
                 content=ft.Row([
-                    ft.Icon(ft.icons.VERIFIED_USER, color=EMERALD_GREEN, size=14),
-                    ft.Text(f"Licencia: Trial activo ({dias_restantes}d)", size=11, color=EMERALD_GREEN, weight=ft.FontWeight.W_600)
-                ], spacing=6),
-                bgcolor=SURFACE_CARD, padding=6, border_radius=16, border=ft.border.all(1, "#334155")
+                    ft.Icon(ft.icons.VERIFIED_USER, color=EMERALD_GREEN, size=16),
+                    ft.Text(f"Licencia: Trial activo ({dias_restantes}d)", size=12, color=EMERALD_GREEN, weight=ft.FontWeight.W_600)
+                ], spacing=8),
+                bgcolor=SURFACE_CARD, padding=ft.padding.symmetric(horizontal=12, vertical=8), border_radius=16, border=ft.border.all(1, "#334155")
             )
-        ], spacing=12, alignment=ft.MainAxisAlignment.END)
+        ], spacing=14, alignment=ft.MainAxisAlignment.END)
 
         header_responsive = ft.ResponsiveRow([
             ft.Container(content=header_brand, col={"sm": 12, "md": 7}),
             ft.Container(content=status_pills, alignment=ft.alignment.center_right if platform.system() != "Mobile" else ft.alignment.center_left, col={"sm": 12, "md": 5})
         ], alignment=ft.MainAxisAlignment.BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
-        # Menú Lateral Sidebar (Sentence casing + 1 sola línea en Código on-premise)
-        btn_nav_sanitizador = ft.ElevatedButton("Sanitizador de archivos", icon=ft.icons.SHIELD_OUTLINED, color="#FFFFFF", bgcolor=ACCENT_ORANGE, width=240)
-        btn_nav_traduccion = ft.ElevatedButton("Traducción inversa", icon=ft.icons.SWAP_HORIZ, color="#FFFFFF", bgcolor=SURFACE_CARD, width=240)
-        btn_nav_diccionario = ft.ElevatedButton("Diccionario empresa", icon=ft.icons.MENU_BOOK_OUTLINED, color="#FFFFFF", bgcolor=SURFACE_CARD, width=240)
-        btn_nav_licencias = ft.ElevatedButton("Licencias y simulación", icon=ft.icons.VPN_KEY_OUTLINED, color="#FFFFFF", bgcolor=SURFACE_CARD, width=240)
-        btn_nav_codigo = ft.ElevatedButton("Código on-premise", icon=ft.icons.CODE, color="#FFFFFF", bgcolor=SURFACE_CARD, width=240)
+        # Menú Lateral Sidebar
+        btn_nav_sanitizador = ft.ElevatedButton("Sanitizador de archivos", icon=ft.icons.SHIELD_OUTLINED, color="#FFFFFF", bgcolor=ACCENT_ORANGE, height=42)
+        btn_nav_traduccion = ft.ElevatedButton("Traducción inversa", icon=ft.icons.SWAP_HORIZ, color="#FFFFFF", bgcolor=SURFACE_CARD, height=42)
+        btn_nav_diccionario = ft.ElevatedButton("Diccionario empresa", icon=ft.icons.MENU_BOOK_OUTLINED, color="#FFFFFF", bgcolor=SURFACE_CARD, height=42)
+        btn_nav_licencias = ft.ElevatedButton("Licencias y simulación", icon=ft.icons.VPN_KEY_OUTLINED, color="#FFFFFF", bgcolor=SURFACE_CARD, height=42)
+        btn_nav_codigo = ft.ElevatedButton("Código on-premise", icon=ft.icons.CODE, color="#FFFFFF", bgcolor=SURFACE_CARD, height=42)
 
         def cambiar_seccion(nombre):
             nonlocal menu_activo
@@ -689,18 +689,22 @@ async def main(page: ft.Page):
         card_compromiso_offline = ft.Container(
             content=ft.Column([
                 ft.Row([
-                    ft.Icon(ft.icons.LOCK_OUTLINED, color=EMERALD_GREEN, size=18),
-                    ft.Text("COMPROMISO OFFLINE", size=12, weight=ft.FontWeight.BOLD, color=EMERALD_GREEN)
+                    ft.Icon(ft.icons.SHIELD_CHECK_OUTLINED, color=EMERALD_GREEN, size=18),
+                    ft.Text("PRIVACIDAD 100% LOCAL", size=12, weight=ft.FontWeight.BOLD, color=EMERALD_GREEN)
                 ], spacing=6),
                 ft.Text(
-                    "Lia Vault opera de forma 100% aislada en su navegador. Ningún documento o cadena de texto es transmitida a internet. Todo el procesamiento OCR e IA se calcula utilizando el motor WebAssembly y regex de Lia Corp.",
+                    "Tus documentos se procesan exclusivamente en este equipo. Ningún dato sensible sale a internet ni se almacena en la nube.",
                     size=11, color=TEXT_MUTED
                 ),
                 ft.Row([
                     ft.Icon(ft.icons.CHECK, color=EMERALD_GREEN, size=14),
-                    ft.Text("Sin trackers, sin cookies en la nube.", size=11, color=TEXT_MUTED)
+                    ft.Text("Cero conexiones externas.", size=11, color=TEXT_MUTED)
+                ], spacing=4),
+                ft.Row([
+                    ft.Icon(ft.icons.CHECK, color=EMERALD_GREEN, size=14),
+                    ft.Text("Procesamiento local seguro.", size=11, color=TEXT_MUTED)
                 ], spacing=4)
-            ], spacing=10),
+            ], spacing=8),
             bgcolor=SURFACE_CARD, padding=16, border_radius=10, border=ft.border.all(1, "#334155")
         )
 
@@ -1105,15 +1109,14 @@ texto_restaurado = desanonimizar_texto("[PERSONA_1]", {"[PERSONA_1]": "Juan Pér
         # FOOTER CON ENLACE CHECKPOINT-IA.COM
         footer_container = ft.Container(
             content=ft.Row([
-                ft.Text("Lia Vault On-Premise Suite • Una solución de", size=11, color=TEXT_MUTED),
+                ft.Text("Lia Vault On-Premise Suite • Una solución de", size=12, color=TEXT_MUTED),
                 ft.TextButton(
-                    content=ft.Text("Checkpoint-ia.com", size=11, color=NEON_BLUE, weight=ft.FontWeight.W_600),
+                    content=ft.Text("Checkpoint-ia.com", size=12, color=NEON_BLUE, weight=ft.FontWeight.W_600),
                     url="https://checkpoint-ia.com",
-                    style=ft.ButtonStyle(padding=0),
-                    on_click=lambda _: abrir_url("https://checkpoint-ia.com")
+                    style=ft.ButtonStyle(padding=0)
                 )
-            ], alignment=ft.MainAxisAlignment.CENTER, spacing=3),
-            padding=8
+            ], alignment=ft.MainAxisAlignment.CENTER, spacing=4),
+            padding=12
         )
 
         refrescar_vistas_archivos()

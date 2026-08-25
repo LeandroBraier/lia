@@ -25,17 +25,17 @@ def construir_ejecutable_nativo():
     # Instalar PyInstaller si no está presente
     subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller"], check=True)
     
+    sep = os.pathsep
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--noconfirm",
         "--onedir",
         "--name=LiaVault",
-        "--add-data=assets:assets",
-        "--add-data=config:config",
-        "--add-data=licencia.key:.",
-        "--add-data=metadata.json:.",
-        "--add-data=app_offline.py:.",
-        "--add-data=validador.py:.",
+        f"--add-data=assets{sep}assets",
+        f"--add-data=config{sep}config",
+        f"--add-data=metadata.json{sep}.",
+        f"--add-data=app_offline.py{sep}.",
+        f"--add-data=validador.py{sep}.",
         "--hidden-import=spacy",
         "--hidden-import=es_core_news_sm",
         "--hidden-import=presidio_analyzer",
@@ -54,12 +54,18 @@ def construir_ejecutable_nativo():
         "--copy-metadata=es_core_news_sm",
     ]
 
-    if os.path.exists("assets/icon.icns"):
-        cmd.append("--icon=assets/icon.icns")
+    if os.path.exists("licencia.key"):
+        cmd.append(f"--add-data=licencia.key{sep}.")
 
     if system == "Darwin":
+        if os.path.exists("assets/icon.icns"):
+            cmd.append("--icon=assets/icon.icns")
         cmd.extend(["--windowed", "--osx-bundle-identifier=com.liavault.app"])
     else:
+        if os.path.exists("assets/icon.ico"):
+            cmd.append("--icon=assets/icon.ico")
+        elif os.path.exists("assets/icon.png"):
+            cmd.append("--icon=assets/icon.png")
         cmd.append("--console")
 
     cmd.append("app_grafica.py")

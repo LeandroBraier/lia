@@ -1,0 +1,89 @@
+name: Build Windows Executable (LiaVault)
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Etiqueta / Tag de la versión (ej: v10.4)'
+        required: true
+        default: 'v10.4'
+      is_draft:
+        description: '¿Crear release como borrador (draft)?'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Compilar LiaVault para Windows (.exe)
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: 📥 Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: 🐍 Configurar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: 📦 Instalar dependencias y paquetes de IA
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller Pillow
+          python -m spacy download es_core_news_sm
+
+      - name: 🎨 Generar icono nativo de Windows (.ico)
+        run: |
+          python -c "from PIL import Image; img=Image.open('assets/icon.png'); img.save('assets/icon.ico', sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)])"
+
+      - name: 🔨 Compilar ejecutable nativo con PyInstaller
+        run: |
+          python build_executable.py
+
+      - name: 📁 Empaquetar lanzador y binarios
+        shell: pwsh
+        run: |
+          if (Test-Path "iniciar_lia_vault_win.bat") {
+            Copy-Item "iniciar_lia_vault_win.bat" -Destination "dist\LiaVault\"
+          }
+          Compress-Archive -Path "dist\LiaVault\*" -DestinationPath "LiaVault_${{ inputs.release_tag }}_Windows.zip" -Force
+
+      - name: 📤 Subir artefacto a GitHub Actions (Backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: LiaVault-Windows-${{ inputs.release_tag }}
+          path: LiaVault_${{ inputs.release_tag }}_Windows.zip
+          retention-days: 30
+
+      - name: 🚀 Publicar en GitHub Releases
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/heads/main') || startsWith(github.ref, 'refs/tags/')
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: Lia Vault ${{ inputs.release_tag }} (Windows Executable)
+          draft: ${{ inputs.is_draft }}
+          prerelease: false
+          files: LiaVault_${{ inputs.release_tag }}_Windows.zip
+          body: |
+            ## 📦 Lia Vault ${{ inputs.release_tag }} — Windows On-Premise Suite
+            
+            Ejecutable autónomo para Windows empaquetado mediante GitHub Actions con PyInstaller.
+            
+            ### 🛠️ Especificaciones Técnicas:
+            - **Arquitectura:** Windows x64 (Python 3.12 standalone embebido).
+            - **Modelos IA Incluidos:** spaCy (`es_core_news_sm`), Microsoft Presidio Analyzer & Anonymizer, EasyOCR y PyMuPDF.
+            - **Interfaz Gráfica:** Flet Web UI (puerto local `8502`).
+            
+            ### 🚀 Instrucciones de Inicio en Windows:
+            1. Descargar y descomprimir `LiaVault_${{ inputs.release_tag }}_Windows.zip`.
+            2. Ejecutar `LiaVault.exe` (o `iniciar_lia_vault_win.bat`).
+            3. Si Windows SmartScreen muestra advertencia, pulsar *"Más información"* > *"Ejecutar de todas formas"*.
+            4. La aplicación abrirá automáticamente en tu navegador predeterminado.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
