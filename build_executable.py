@@ -10,17 +10,23 @@ import platform
 import subprocess
 import tempfile
 
-# Solución defensiva para fallos de TMPDIR en macOS/Linux
-try:
-    tempfile.gettempdir()
-except Exception:
-    os.environ['TMPDIR'] = '/tmp'
+# Forzar codificacion UTF-8 segura para salida por consola
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 def construir_ejecutable_nativo():
-    print("🔨 Iniciando construcción del ejecutable nativo de Lia Vault...")
+    print("[+] Iniciando construccion del ejecutable nativo de Lia Vault...")
     
     system = platform.system()
-    print(f"🖥️ Sistema Operativo Detectado: {system}")
+    print(f"[+] Sistema Operativo Detectado: {system}")
     
     # Instalar PyInstaller si no está presente
     subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller"], check=True)
@@ -70,13 +76,13 @@ def construir_ejecutable_nativo():
 
     cmd.append("app_grafica.py")
     
-    print("📦 Ejecutando comando de compilación PyInstaller...")
+    print("[+] Ejecutando comando de compilacion PyInstaller...")
     subprocess.run(cmd, check=True)
     
     if system == "Darwin":
-        print("✅ Compilación exitosa. El paquete ejecutable .app se encuentra en './dist/LiaVault.app'.")
+        print("[OK] Compilacion exitosa. El paquete ejecutable .app se encuentra en './dist/LiaVault.app'.")
     else:
-        print("✅ Compilación exitosa. El paquete ejecutable se encuentra en './dist/LiaVault'.")
+        print("[OK] Compilacion exitosa. El paquete ejecutable se encuentra en './dist/LiaVault'.")
 
 if __name__ == "__main__":
     construir_ejecutable_nativo()
