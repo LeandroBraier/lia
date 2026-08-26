@@ -20,6 +20,8 @@ jobs:
     name: Compilar LiaVault para Windows (.exe)
     runs-on: windows-latest
     timeout-minutes: 45
+    env:
+      PYTHONIOENCODING: utf-8
 
     steps:
       - name: 📥 Clonar repositorio
