@@ -1,8 +1,9 @@
 @echo off
+chcp 65001 >nul
 cd /d "%~dp0"
 title Lia Vault On-Premise Suite
 echo ========================================================
-echo 🚀 Iniciando Lia Vault On-Premise Suite (Windows)...
+echo [LIA VAULT] Iniciando Lia Vault On-Premise Suite (Windows)...
 echo ========================================================
 
 if exist "dist\LiaVault\LiaVault.exe" (
@@ -18,6 +19,6 @@ if exist "LiaVault.exe" (
 python app_grafica.py
 if %ERRORLEVEL% NEQ 0 (
     echo.
-    echo ❌ Error al iniciar la aplicación. Asegúrese de tener Python o el ejecutable LiaVault.exe.
+    echo [ERROR] Error al iniciar la aplicacion. Asegurese de tener Python o el ejecutable LiaVault.exe.
     pause
 )

@@ -683,10 +683,10 @@ def ejecutar_procesamiento_lotes(carpeta_salida=None):
     archivos = [f for f in archivos if not f.startswith("~$") and os.path.isfile(os.path.join(CARPETA_ENTRADA, f))]
     
     if not archivos:
-        print(f"📁 La carpeta '{CARPETA_ENTRADA}' está vacía. Agregue archivos para procesar.")
+        print(f"[INFO] La carpeta '{CARPETA_ENTRADA}' esta vacia. Agregue archivos para procesar.")
         return 0
 
-    print(f"🚀 LIA VAULT: Procesando lote de {len(archivos)} archivos -> '{target_salida}'...")
+    print(f"[INFO] LIA VAULT: Procesando lote de {len(archivos)} archivos -> '{target_salida}'")
     procesados_exitosos = 0
     
     for nombre_archivo in archivos:
