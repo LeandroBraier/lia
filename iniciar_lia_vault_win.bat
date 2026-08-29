@@ -3,16 +3,24 @@ chcp 65001 >nul
 cd /d "%~dp0"
 title Lia Vault On-Premise Suite
 echo ========================================================
-echo [LIA VAULT] Iniciando Lia Vault On-Premise Suite (Windows)...
+echo  Lia Vault On-Premise Suite (Windows)
 echo ========================================================
-
-if exist "dist\LiaVault\LiaVault.exe" (
-    start "" "dist\LiaVault\LiaVault.exe"
-    exit /b 0
-)
+echo.
+echo [+] Iniciando motor de IA y servidor local...
+echo [+] La aplicacion se abrira en tu navegador (http://localhost:8502)
+echo.
 
 if exist "LiaVault.exe" (
     start "" "LiaVault.exe"
+    timeout /t 3 /nobreak >nul
+    start http://localhost:8502
+    exit /b 0
+)
+
+if exist "dist\LiaVault\LiaVault.exe" (
+    start "" "dist\LiaVault\LiaVault.exe"
+    timeout /t 3 /nobreak >nul
+    start http://localhost:8502
     exit /b 0
 )
 

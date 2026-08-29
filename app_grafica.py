@@ -1171,12 +1171,40 @@ texto_restaurado = desanonimizar_texto("[PERSONA_1]", {"[PERSONA_1]": "Juan Pér
 
 def liberar_puerto(puerto=8502):
     import subprocess, platform
-    if platform.system() in ("Darwin", "Linux"):
+    sistema = platform.system()
+    if sistema in ("Darwin", "Linux"):
         try:
             subprocess.run(f"lsof -ti:{puerto} | xargs kill -9", shell=True, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
         except Exception:
             pass
+    elif sistema == "Windows":
+        try:
+            cmd = f'powershell -Command "Get-NetTCPConnection -LocalPort {puerto} -ErrorAction SilentlyContinue | ForEach-Object {{ Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }}"'
+            subprocess.run(cmd, shell=True, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+def _lanzar_navegador_seguro(url="http://localhost:8502"):
+    import time, webbrowser, platform
+    time.sleep(2)
+    try:
+        webbrowser.open(url)
+    except Exception:
+        pass
+    if platform.system() == "Windows":
+        try:
+            import os
+            os.system(f"start {url}")
+        except Exception:
+            pass
 
 if __name__ == "__main__":
+    import threading
     liberar_puerto(8502)
+    print("\n==================================================")
+    print(" [OK] SERVIDOR LIA VAULT EN EJECUCION")
+    print(" [+] URL Local: http://localhost:8502")
+    print(" [+] URL Red:   http://127.0.0.1:8502")
+    print("==================================================\n")
+    threading.Thread(target=_lanzar_navegador_seguro, daemon=True).start()
     ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=8502, host="0.0.0.0")
