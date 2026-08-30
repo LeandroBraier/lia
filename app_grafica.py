@@ -638,7 +638,7 @@ async def main(page: ft.Page):
             ft.Row([
                 logo_img,
                 ft.Text("LIA VAULT", size=26, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                ft.Container(content=ft.Text("ON-PREMISE", size=11, weight=ft.FontWeight.BOLD, color=ACCENT_ORANGE), bgcolor="#3B2506", padding=ft.padding.symmetric(horizontal=8, vertical=3), border_radius=4)
+                ft.Container(content=ft.Text("ON-PREMISE", size=11, weight=ft.FontWeight.BOLD, color=ACCENT_ORANGE), bgcolor="#3B2506", padding=ft.Padding(left=8, right=8, top=3, bottom=3), border_radius=4)
             ], spacing=10),
             ft.Text("Suite de Privacidad y Anonimización 100% On-Premise", size=13, weight=ft.FontWeight.W_500, color=TEXT_MUTED)
         ], spacing=4)
@@ -649,14 +649,14 @@ async def main(page: ft.Page):
                     ft.Icon(ft.icons.CIRCLE, color=EMERALD_GREEN, size=11),
                     ft.Text("Servidor local: 127.0.0.1:8502 (LAN)", size=12, color=NEON_BLUE, weight=ft.FontWeight.W_600)
                 ], spacing=8),
-                bgcolor=SURFACE_CARD, padding=ft.padding.symmetric(horizontal=12, vertical=8), border_radius=16, border=ft.border.all(1, "#334155")
+                bgcolor=SURFACE_CARD, padding=ft.Padding(left=12, right=12, top=8, bottom=8), border_radius=16, border=ft.border.all(1, "#334155")
             ),
             ft.Container(
                 content=ft.Row([
                     ft.Icon(ft.icons.VERIFIED_USER, color=EMERALD_GREEN, size=16),
                     ft.Text(f"Licencia: Trial activo ({dias_restantes}d)", size=12, color=EMERALD_GREEN, weight=ft.FontWeight.W_600)
                 ], spacing=8),
-                bgcolor=SURFACE_CARD, padding=ft.padding.symmetric(horizontal=12, vertical=8), border_radius=16, border=ft.border.all(1, "#334155")
+                bgcolor=SURFACE_CARD, padding=ft.Padding(left=12, right=12, top=8, bottom=8), border_radius=16, border=ft.border.all(1, "#334155")
             )
         ], spacing=14, alignment=ft.MainAxisAlignment.END)
 
