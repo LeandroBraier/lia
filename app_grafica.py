@@ -31,8 +31,29 @@ except AttributeError:
     pass
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-# Parchear resolución de iconos y alineaciones en Python 3.14+
-ft.icons = getattr(ft.icons, "Icons", ft.icons)
+# Parchear resolución de iconos y alineaciones de forma 100% segura
+class SafeIconsProxy:
+    def __init__(self, target):
+        self._target = target
+    def __getattr__(self, name):
+        if hasattr(self._target, name):
+            return getattr(self._target, name)
+        # Fallbacks seguros por similitud semántica
+        upper_name = name.upper()
+        if "SHIELD" in upper_name or "SECURITY" in upper_name or "LOCK" in upper_name:
+            return getattr(self._target, "SHIELD_OUTLINED", getattr(self._target, "SHIELD", 72371))
+        if "CHECK" in upper_name or "VERIF" in upper_name:
+            return getattr(self._target, "CHECK", getattr(self._target, "VERIFIED_USER", 66861))
+        if "DOC" in upper_name or "FILE" in upper_name or "TEXT" in upper_name:
+            return getattr(self._target, "DESCRIPTION_OUTLINED", 67448)
+        if "KEY" in upper_name or "VPN" in upper_name:
+            return getattr(self._target, "VPN_KEY", 74031)
+        return getattr(self._target, "HELP_OUTLINE", getattr(self._target, "CIRCLE", 66917))
+
+_target_icons = getattr(ft, "Icons", getattr(ft.icons, "Icons", ft.icons))
+ft.icons = SafeIconsProxy(_target_icons)
+ft.Icons = ft.icons
+
 ft.border.all = getattr(ft.border, "all", getattr(ft.border, "Border", None).all)
 ft.MainAxisAlignment.BETWEEN = getattr(ft.MainAxisAlignment, "BETWEEN", ft.MainAxisAlignment.SPACE_BETWEEN)
 ft.colors = getattr(ft, "colors", getattr(ft, "Colors", None))
@@ -701,7 +722,7 @@ async def main(page: ft.Page):
         card_compromiso_offline = ft.Container(
             content=ft.Column([
                 ft.Row([
-                    ft.Icon(ft.icons.SHIELD_CHECK_OUTLINED, color=EMERALD_GREEN, size=18),
+                    ft.Icon(ft.icons.SHIELD_OUTLINED, color=EMERALD_GREEN, size=18),
                     ft.Text("PRIVACIDAD 100% LOCAL", size=12, weight=ft.FontWeight.BOLD, color=EMERALD_GREEN)
                 ], spacing=6),
                 ft.Text(
