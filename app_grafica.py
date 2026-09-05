@@ -157,7 +157,7 @@ async def main(page: ft.Page):
     # --- CONTROLES DE SEUDONIMIZACIÓN (REVERSIBLE) ---
     texto_estado_sanitizador = ft.Text(t("sanitizer_status_ready"), size=12, color=TEXT_MUTED)
     barra_progreso_sanitizador = ft.ProgressBar(visible=False, color=ACCENT_ORANGE)
-    btn_procesar_lote = ft.ElevatedButton(text=t("sanitizer_btn_process"), icon=ft.icons.SHIELD, color="#FFFFFF", bgcolor=ACCENT_ORANGE, width=320, disabled=True)
+    btn_procesar_lote = ft.ElevatedButton(t("sanitizer_btn_process"), icon=ft.icons.SHIELD, color="#FFFFFF", bgcolor=ACCENT_ORANGE, width=320, disabled=True)
 
     vista_cola_archivos = ft.ListView(expand=1, spacing=6, height=140)
     panel_inspector_preview = ft.Container(
@@ -175,7 +175,7 @@ async def main(page: ft.Page):
     # --- CONTROLES DE ANONIMIZACIÓN (IRREVERSIBLE - RGPD) ---
     texto_estado_anon = ft.Text(t("anon_status_ready"), size=12, color=TEXT_MUTED)
     barra_progreso_anon = ft.ProgressBar(visible=False, color=EMERALD_GREEN)
-    btn_procesar_lote_anon = ft.ElevatedButton(text=t("anon_btn_process"), icon=ft.icons.VERIFIED_USER, color="#FFFFFF", bgcolor=EMERALD_GREEN, height=40, expand=True, disabled=True)
+    btn_procesar_lote_anon = ft.ElevatedButton(t("anon_btn_process"), icon=ft.icons.VERIFIED_USER, color="#FFFFFF", bgcolor=EMERALD_GREEN, height=40, expand=True, disabled=True)
 
     dd_k_anonimato = ft.Dropdown(
         label="Nivel k-anonimato (Tablas)",
