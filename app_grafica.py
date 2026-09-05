@@ -896,8 +896,17 @@ async def main(page: ft.Page):
         logo_img = ft.Image(src=f"data:image/svg+xml;base64,{LOGO_BASE64}", width=44, height=44, fit="contain")
         
         # Sincronizar textos de controles dinámicos con el idioma activo
-        btn_procesar_lote.text = t("sanitizer_btn_process")
-        btn_procesar_lote_anon.text = t("anon_btn_process")
+        def _set_btn_label(btn, txt):
+            if hasattr(btn, "content"):
+                btn.content = txt
+            if hasattr(btn, "text"):
+                try:
+                    btn.text = txt
+                except Exception:
+                    pass
+
+        _set_btn_label(btn_procesar_lote, t("sanitizer_btn_process"))
+        _set_btn_label(btn_procesar_lote_anon, t("anon_btn_process"))
         texto_estado_sanitizador.value = t("sanitizer_status_ready")
         texto_estado_anon.value = t("anon_status_ready")
         dd_k_anonimato.label = t("anon_k_label")
@@ -1082,10 +1091,10 @@ async def main(page: ft.Page):
 
             btn_tour_anterior.disabled = (paso_tour_actual == 0)
             if paso_tour_actual == len(pasos_tour) - 1:
-                btn_tour_siguiente.text = t("tour_btn_finish")
+                _set_btn_label(btn_tour_siguiente, t("tour_btn_finish"))
                 btn_tour_siguiente.bgcolor = EMERALD_GREEN
             else:
-                btn_tour_siguiente.text = t("tour_btn_next")
+                _set_btn_label(btn_tour_siguiente, t("tour_btn_next"))
                 btn_tour_siguiente.bgcolor = ACCENT_ORANGE
 
             overlay_tour_modal.visible = True
