@@ -1,7 +1,7 @@
 # 🛡️ Guía Completa de Producto - Lia Vault
 
 **Lia Vault: On-Premise Privacy & Anonymization Suite**  
-*Escudo de Privacidad Local, Anonimización Inteligente y Cumplimiento Normativo (RGPD / Reglamento de Inteligencia Artificial de la UE).*
+*Escudo de Privacidad Local, Seudonimización Inteligente y Cumplimiento Normativo (RGPD / Reglamento de Inteligencia Artificial de la UE).*
 
 ---
 
@@ -24,7 +24,7 @@
 
 ## 💡 Visión General y Propuesta de Valor
 
-**Lia Vault** es una solución de grado empresarial diseñada para la **anonimización, redacción visual y protección de datos sensibles en documentos corporativos**. Funciona de manera **100% offline y local**, garantizando que ningún dato confidencial o PII (Información Personal Identificable) salga de la red corporativa.
+**Lia Vault** es una solución de grado empresarial diseñada para la **seudonimización, redacción visual y protección de datos sensibles en documentos corporativos**. Funciona de manera **100% offline y local**, garantizando que ningún dato confidencial o PII (Información Personal Identificable) salga de la red corporativa.
 
 ### ¿Por qué Lia Vault?
 - **Riesgo Cero de Fuga de Datos:** Procesa archivos en el hardware local sin enviar datos a APIs externas o la nube.
@@ -113,11 +113,14 @@ Lia Vault integra un motor de OCR (Reconocimiento Óptico de Caracteres). Analiz
 
 ### 🔐 Reversibilidad Criptográfica
 
-#### ¿Qué es el archivo `.reverse.key` y cómo funciona la des-anonimización?
-Durante el proceso de anonimización, Lia Vault crea un mapa de equivalencias cifrado (por ejemplo: `Juan Pérez` $\rightarrow$ `[PERSONA_1]`). Este mapa se guarda en un archivo `.reverse.key`. Solo quienes posean este archivo y los permisos correspondientes pueden revertir el proceso y recuperar los datos originales.
+#### ¿Qué es el archivo `.reverse.key` y cómo funciona la des-seudonimización?
+Durante el proceso de seudonimización, Lia Vault crea un mapa de equivalencias cifrado (por ejemplo: `Juan Pérez` $\rightarrow$ `[PERSONA_1]`). Este mapa se guarda en un archivo `.reverse.key`. Solo quienes posean este archivo y los permisos correspondientes pueden revertir el proceso y recuperar los datos originales.
 
-#### ¿Es obligatorio guardar la llave de reversión?
-No. Si el usuario desea una anonimización destructiva e irreversible (por ejemplo, para publicar datos abiertos), puede deshabilitar la generación de la llave de reversión.
+#### ¿El archivo `.reverse.key` es obligatorio?
+No. Si el usuario desea una eliminación destructiva e irreversible (por ejemplo, para publicar datos abiertos), puede deshabilitar la generación de la llave de reversión.
+
+#### ¿Es posible evitar que seudonimice el nombre de nuestra empresa o marcas registradas?
+Sí. A través de la pestaña **"🏢 Diccionario Empresa"**, el usuario puede ingresar nombres de empresas, productos o marcas registradas. Estas entidades serán preservadas intactas en todos los documentos procesados.
 
 ---
 
@@ -133,7 +136,7 @@ La aplicación mostrará una advertencia al usuario impidiendo nuevos procesamie
 
 ### ⚙️ Personalización y Diccionarios
 
-#### ¿Es posible evitar que anonimice el nombre de nuestra empresa o marcas registradas?
+#### ¿Es posible evitar que seudonimice el nombre de nuestra empresa o marcas registradas?
 **Sí.** A través del **Diccionario Corporativo** (`diccionario_corporativo.txt`), puede definir una lista blanca (*whitelist*) de términos que el motor NLP debe omitir.
 
 #### ¿Podemos agregar patrones de regex personalizados (ejemplo: códigos de cliente internos)?
@@ -156,4 +159,4 @@ La aplicación mostrará una advertencia al usuario impidiendo nuevos procesamie
 ### 🤖 Integración con IA y LLMs
 
 #### ¿Cómo me ayuda Lia Vault al usar herramientas como ChatGPT o Copilot?
-Antes de copiar y pegar un texto o subir un documento a un LLM comercial, el usuario lo procesa en Lia Vault. Este sustituye los datos confidenciales por etiquetas sintéticas (`[DNI_1]`, `[CLIENTE_A]`). Al recibir la respuesta del LLM, el usuario puede des-anonimizar el resultado usando su `.reverse.key` local.
+Antes de copiar y pegar un texto o subir un documento a un LLM comercial, el usuario lo procesa en Lia Vault. Este sustituye los datos confidenciales por etiquetas sintéticas (`[DNI_1]`, `[CLIENTE_A]`). Al recibir la respuesta del LLM, el usuario puede des-seudonimizar el resultado usando su `.reverse.key` local.

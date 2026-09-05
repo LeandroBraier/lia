@@ -8,7 +8,7 @@ Esta es la documentación técnica oficial de **Lia Vault**, diseñada para admi
 
 El código completo y refactorizado se encuentra en los siguientes archivos de su espacio de trabajo:
 
-1. **`app_offline.py`**: El cerebro del anonimizador de datos (IA local de Microsoft Presidio, spaCy, EasyOCR para imágenes y PyMuPDF para redacción de PDFs).
+1. **`app_offline.py`**: El cerebro del seudonimizador de datos (IA local de Microsoft Presidio, spaCy, EasyOCR para imágenes y PyMuPDF para redacción de PDFs).
 2. **`app_grafica.py`**: Interfaz gráfica moderna (estilo Google Material Design con tema oscuro) programada con Flet.
 3. **`validador.py`**: Sistema criptográfico offline de autenticación y verificación de licencias (Trial de 1 año con control de alteración de reloj).
 4. **`requirements.txt`**: Librerías de Python requeridas.

@@ -5,7 +5,7 @@
 
 import { WhitelistItem } from './types';
 
-// Allowlist de Software, Modelos IA y Tecnologías públicas (NO deben anonimizarse como Organización)
+// Allowlist de Software, Modelos IA y Tecnologías públicas (NO deben seudonimizarse como Organización)
 export const SOFTWARE_ALLOWLIST = new Set([
   'chatgpt', 'copilot', 'gemini', 'claude', 'llama', 'gpt', 'gpt-4', 'gpt-3.5',
   'windows', 'office', 'excel', 'word', 'powerpoint', 'google', 'microsoft',

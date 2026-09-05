@@ -29,7 +29,14 @@ import {
   Check,
   Eye,
   AlertOctagon,
-  Play
+  Play,
+  HelpCircle,
+  FolderOpen,
+  Sparkles,
+  ChevronRight,
+  ChevronLeft,
+  Compass,
+  Folder
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { WhitelistItem, ProcessedFile, AuditLog } from './types';
@@ -91,9 +98,59 @@ export default function App() {
 
   // Estados de Preloaders & Drag and Drop
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingPhase, setProcessingPhase] = useState<string>('');
   const [isReversing, setIsReversing] = useState(false);
+  const [reversePhase, setReversePhase] = useState<string>('');
   const [isDragging, setIsDragging] = useState(false);
-  
+  const [showFolderModal, setShowFolderModal] = useState(false);
+
+  // Estados del Tour Guiado Interactivo
+  const [showTour, setShowTour] = useState(false);
+  const [tourStep, setTourStep] = useState(0);
+
+  const TOUR_STEPS = [
+    {
+      step: 1,
+      title: "Bienvenido a Lia Vault",
+      subtitle: "Privacidad y Seudonimización 100% On-Premise",
+      description: "Lia Vault procesa documentos confidenciales en tu máquina local. Ningún dato sensible (PII) sale a la nube ni a internet.",
+      tab: 'sanitizer' as const,
+      badge: "Inicio Rápido"
+    },
+    {
+      step: 2,
+      title: "Carga y Arrastre de Documentos",
+      subtitle: "Soporte para TXT, CSV, DOCX, XLSX y OCR",
+      description: "Arrastra archivos a la zona de carga o selecciónalos. Puedes procesar lotes enteros o archivos individuales en segundos.",
+      tab: 'sanitizer' as const,
+      badge: "Paso 1"
+    },
+    {
+      step: 3,
+      title: "Clon Sanitizado + Llave .reverse.key",
+      subtitle: "Protección Criptográfica Reversible",
+      description: "Al seudonimizar, descargas el archivo limpio para enviar a ChatGPT/Copilot y la llave (.reverse.key) para poder revertir los datos luego.",
+      tab: 'sanitizer' as const,
+      badge: "Paso 2"
+    },
+    {
+      step: 4,
+      title: "Traducción Inversa",
+      subtitle: "Restauración de Datos Originales",
+      description: "Pega la respuesta de la IA junto a tu archivo .reverse.key para reconstruir el documento original en el mismo formato con sus datos reales.",
+      tab: 'reverse' as const,
+      badge: "Paso 3"
+    },
+    {
+      step: 5,
+      title: "Diccionario Corporativo",
+      subtitle: "Exclusiones y Proyectos Confidenciales",
+      description: "Agrega nombres de proyectos secretos, clientes VIP o patentes para censurarlos automáticamente junto a los datos PII.",
+      tab: 'whitelist' as const,
+      badge: "Configuración"
+    }
+  ];
+
   // Whitelist/Diccionario Corporativo
   const [whitelist, setWhitelist] = useState<WhitelistItem[]>([
     { id: "1", word: "Proyecto Halcon", category: "Proyecto Secreto" },
@@ -149,14 +206,54 @@ export default function App() {
   const [customLicenseDate, setCustomLicenseDate] = useState('2027-07-19');
   const [customClientName, setCustomClientName] = useState('ORGANIZACION_TEXTIL_SL');
 
-  // Cargar archivos de muestra por defecto en el primer render
+  // Cargar archivos de muestra y verificar tour por primera vez
   useEffect(() => {
     const initialized = SAMPLE_FILES.map((f, idx) => ({
       ...f,
       id: `sample_${idx + 1}`
     }));
     setFiles(initialized);
+
+    // Detección de primer inicio para el Tour
+    const tourCompleted = localStorage.getItem('lia_vault_tour_completed');
+    if (!tourCompleted) {
+      setShowTour(true);
+    }
   }, []);
+
+  const handleStartTour = () => {
+    setTourStep(0);
+    setActiveTab(TOUR_STEPS[0].tab);
+    setShowTour(true);
+  };
+
+  const handleNextTourStep = () => {
+    if (tourStep < TOUR_STEPS.length - 1) {
+      const next = tourStep + 1;
+      setTourStep(next);
+      setActiveTab(TOUR_STEPS[next].tab);
+    } else {
+      handleCompleteTour();
+    }
+  };
+
+  const handlePrevTourStep = () => {
+    if (tourStep > 0) {
+      const prev = tourStep - 1;
+      setTourStep(prev);
+      setActiveTab(TOUR_STEPS[prev].tab);
+    }
+  };
+
+  const handleCompleteTour = () => {
+    localStorage.setItem('lia_vault_tour_completed', 'true');
+    setShowTour(false);
+  };
+
+  const handleResetTour = () => {
+    localStorage.removeItem('lia_vault_tour_completed');
+    handleStartTour();
+  };
 
   // --- ACCIONES Y PROCESAMIENTO ---
 
@@ -228,54 +325,73 @@ export default function App() {
     });
   };
 
-  // Sanitizar un archivo localmente usando el motor de anonymizer.ts y sanitizando el título (Bug 1)
+  // Sanitizar un archivo localmente usando el motor de anonymizer.ts y sanitizando el título
   const processFileLocal = (fileId: string) => {
     setIsProcessing(true);
+    setProcessingPhase('1/3: Analizando patrones PII (DNI, tarjetas, emails)...');
+    
     setTimeout(() => {
-      setFiles(prev => prev.map(f => {
-        if (f.id === fileId) {
-          const { redactedText, piiFound, keyMap } = detectAndRedact(f.originalContent, whitelist);
-          const { sanitizedName, filenameKeyMap } = sanitizeFilename(f.name, whitelist);
-          const mergedKeyMap = { ...filenameKeyMap, ...keyMap };
-          
-          // Registrar log de auditoría
-          const categories = Array.from(new Set(piiFound.map(p => p.category)));
-          const newLog: AuditLog = {
-            id: `log_${Date.now()}`,
-            timestamp: new Date().toLocaleTimeString(),
-            fileName: sanitizedName,
-            fileSize: `${(f.originalSize / 1024).toFixed(1)} KB`,
-            fileType: f.type,
-            piiCount: piiFound.length,
-            entitiesDetected: categories
-          };
-          setAuditLogs(prevLogs => [newLog, ...prevLogs]);
+      setProcessingPhase('2/3: Cruzando con diccionario corporativo y exclusiones...');
+      
+      setTimeout(() => {
+        setProcessingPhase('3/3: Generando tokens de reemplazo y mapa .reverse.key...');
+        
+        setTimeout(() => {
+          setFiles(prev => prev.map(f => {
+            if (f.id === fileId) {
+              const { redactedText, piiFound, keyMap } = detectAndRedact(f.originalContent, whitelist);
+              const { sanitizedName, filenameKeyMap } = sanitizeFilename(f.name, whitelist);
+              const mergedKeyMap = { ...filenameKeyMap, ...keyMap };
+              
+              // Registrar log de auditoría
+              const categories = Array.from(new Set(piiFound.map(p => p.category)));
+              const newLog: AuditLog = {
+                id: `log_${Date.now()}`,
+                timestamp: new Date().toLocaleTimeString(),
+                fileName: sanitizedName,
+                fileSize: `${(f.originalSize / 1024).toFixed(1)} KB`,
+                fileType: f.type,
+                piiCount: piiFound.length,
+                entitiesDetected: categories
+              };
+              setAuditLogs(prevLogs => [newLog, ...prevLogs]);
 
-          return {
-            ...f,
-            name: sanitizedName,
-            status: 'done',
-            redactedContent: redactedText,
-            piiFound,
-            keyMap: mergedKeyMap
-          };
-        }
-        return f;
-      }));
-      setIsProcessing(false);
-    }, 450);
+              return {
+                ...f,
+                name: sanitizedName,
+                status: 'done',
+                redactedContent: redactedText,
+                piiFound,
+                keyMap: mergedKeyMap
+              };
+            }
+            return f;
+          }));
+          setIsProcessing(false);
+          setProcessingPhase('');
+        }, 300);
+      }, 300);
+    }, 300);
   };
 
   const processAllFiles = () => {
     setIsProcessing(true);
+    setProcessingPhase('1/3: Escaneando lote completo de documentos...');
     setTimeout(() => {
-      files.forEach(f => {
-        if (f.status === 'pending') {
-          processFileLocal(f.id);
-        }
-      });
-      setIsProcessing(false);
-    }, 600);
+      setProcessingPhase('2/3: Seudonimizando entidades y aplicando políticas...');
+      setTimeout(() => {
+        setProcessingPhase('3/3: Empaquetando llaves de restauración criptográfica...');
+        setTimeout(() => {
+          files.forEach(f => {
+            if (f.status === 'pending') {
+              processFileLocal(f.id);
+            }
+          });
+          setIsProcessing(false);
+          setProcessingPhase('');
+        }, 350);
+      }, 350);
+    }, 350);
   };
 
   const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
@@ -292,7 +408,7 @@ export default function App() {
     }));
   };
 
-  // Reversión interactiva con Preloader (Bug 5) y Formato Preservado (Bug 6)
+  // Reversión interactiva con Preloader y Formato Preservado
   const handleReverseFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files[0];
@@ -326,18 +442,29 @@ export default function App() {
   const runReverseTranslation = () => {
     if (!reverseText) return;
     setIsReversing(true);
+    setReversePhase('1/3: Validando estructura de la llave .reverse.key...');
+    
     setTimeout(() => {
-      try {
-        const parsedKey = JSON.parse(reverseKeyInput || '{}');
-        const restored = restoreAnonymization(reverseText, parsedKey);
-        setReverseOutput(restored);
-        setIsReverseDone(true);
-      } catch (e) {
-        alert("Error: El mapa .key ingresado no es un JSON válido.");
-      } finally {
-        setIsReversing(false);
-      }
-    }, 500);
+      setReversePhase('2/3: Reemplazando seudónimos y restaurando texto real...');
+      
+      setTimeout(() => {
+        setReversePhase(`3/3: Reconstruyendo documento .${reverseFileExt.toUpperCase()}...`);
+        
+        setTimeout(() => {
+          try {
+            const parsedKey = JSON.parse(reverseKeyInput || '{}');
+            const restored = restoreAnonymization(reverseText, parsedKey);
+            setReverseOutput(restored);
+            setIsReverseDone(true);
+          } catch (e) {
+            alert("Error: El mapa .key ingresado no es un JSON válido.");
+          } finally {
+            setIsReversing(false);
+            setReversePhase('');
+          }
+        }, 300);
+      }, 300);
+    }, 300);
   };
 
   // Generar licencia offline (.key)
@@ -466,11 +593,21 @@ export default function App() {
                   On-Premise
                 </span>
               </div>
-              <p className="text-xs text-zinc-500 font-medium mt-1">Suite de Privacidad y Anonimización 100% On-Premise</p>
+              <p className="text-xs text-zinc-500 font-medium mt-1">Suite de Privacidad y Seudonimización 100% On-Premise</p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Botón de Tour Guiado */}
+            <button 
+              onClick={handleResetTour}
+              className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-sm cursor-pointer"
+              title="Iniciar o reiniciar el tour interactivo paso a paso"
+            >
+              <Sparkles className="h-4 w-4 text-amber-600 animate-pulse" />
+              <span>{showTour ? 'Tour Activo' : 'Tour Guiado'}</span>
+            </button>
+
             <div className="hidden md:flex items-center gap-2 bg-zinc-100 border border-zinc-200 px-4 py-2 rounded-full text-xs font-mono">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping"></span>
               <span className="text-zinc-600">Servidor Local: </span>
@@ -485,6 +622,139 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {/* --- MODAL FLOTANTE: TOUR GUIADO INTERACTIVO --- */}
+      <AnimatePresence>
+        {showTour && (
+          <div className="fixed inset-0 z-40 bg-zinc-950/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white border-2 border-amber-500/80 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative text-left overflow-hidden"
+            >
+              {/* Barra superior del tour */}
+              <div className="flex items-center justify-between border-b border-zinc-100 pb-3 mb-4">
+                <div className="flex items-center gap-2">
+                  <span className="p-1.5 bg-amber-50 text-amber-600 rounded-lg border border-amber-200">
+                    <Compass className="h-4 w-4" />
+                  </span>
+                  <span className="text-[10px] font-mono uppercase font-bold tracking-widest bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
+                    {TOUR_STEPS[tourStep].badge} ({tourStep + 1} de {TOUR_STEPS.length})
+                  </span>
+                </div>
+                <button 
+                  onClick={handleCompleteTour}
+                  className="text-zinc-400 hover:text-zinc-600 p-1 rounded-md transition"
+                  title="Cerrar tour"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              {/* Indicador de progreso por pasos */}
+              <div className="grid grid-cols-5 gap-1.5 mb-4">
+                {TOUR_STEPS.map((_, idx) => (
+                  <div 
+                    key={idx}
+                    className={`h-1.5 rounded-full transition-all duration-300 ${idx <= tourStep ? 'bg-amber-500' : 'bg-zinc-200'}`}
+                  />
+                ))}
+              </div>
+
+              {/* Contenido del paso actual */}
+              <div className="space-y-2 mb-6">
+                <h3 className="text-base font-bold text-zinc-900 flex items-center gap-2">
+                  {TOUR_STEPS[tourStep].title}
+                </h3>
+                <p className="text-xs font-semibold text-amber-700 font-sans">
+                  {TOUR_STEPS[tourStep].subtitle}
+                </p>
+                <p className="text-xs text-zinc-600 leading-relaxed font-sans pt-1">
+                  {TOUR_STEPS[tourStep].description}
+                </p>
+              </div>
+
+              {/* Controles de navegación */}
+              <div className="flex items-center justify-between pt-3 border-t border-zinc-100">
+                <button 
+                  onClick={handleCompleteTour}
+                  className="text-xs text-zinc-500 hover:text-zinc-800 font-semibold transition"
+                >
+                  Omitir Tour
+                </button>
+
+                <div className="flex items-center gap-2">
+                  {tourStep > 0 && (
+                    <button 
+                      onClick={handlePrevTourStep}
+                      className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-semibold rounded-lg transition flex items-center gap-1"
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" />
+                      <span>Anterior</span>
+                    </button>
+                  )}
+
+                  <button 
+                    onClick={handleNextTourStep}
+                    className="px-4 py-1.5 bg-[#f99c00] hover:bg-[#e08b00] text-white text-xs font-bold rounded-lg transition flex items-center gap-1 shadow-md shadow-amber-500/20"
+                  >
+                    <span>{tourStep === TOUR_STEPS.length - 1 ? '¡Comenzar a usar!' : 'Siguiente'}</span>
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- MODAL INFORMATIVO: CARPETA DE DESTINO --- */}
+      <AnimatePresence>
+        {showFolderModal && (
+          <div className="fixed inset-0 z-40 bg-zinc-950/50 backdrop-blur-sm flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white border border-zinc-200 rounded-2xl max-w-md w-full p-6 shadow-2xl text-left relative"
+            >
+              <div className="flex items-center justify-between border-b border-zinc-100 pb-3 mb-4">
+                <div className="flex items-center gap-2 text-emerald-700">
+                  <FolderOpen className="h-5 w-5" />
+                  <h4 className="text-sm font-bold">Ubicación de Documentos Procesados</h4>
+                </div>
+                <button 
+                  onClick={() => setShowFolderModal(false)}
+                  className="text-zinc-400 hover:text-zinc-600"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="space-y-3 text-xs text-zinc-600 mb-6">
+                <p>Los archivos restaurados y sanitizados se descargan y guardan en tu carpeta local predeterminada del sistema:</p>
+                <div className="bg-zinc-900 text-emerald-400 font-mono text-[11px] p-3 rounded-lg border border-zinc-800 flex items-center justify-between">
+                  <span>~/Downloads/ o ./salida/</span>
+                  <span className="text-[10px] text-zinc-500">100% Local</span>
+                </div>
+                <p className="text-[11px] text-zinc-500">
+                  En entornos de escritorio o Docker, los resultados también quedan sincronizados en el directorio raíz de la app.
+                </p>
+              </div>
+
+              <div className="flex justify-end">
+                <button 
+                  onClick={() => setShowFolderModal(false)}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition"
+                >
+                  Entendido
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* --- CUERPO PRINCIPAL --- */}
       <main className="max-w-7xl mx-auto px-4 py-8">
@@ -606,7 +876,7 @@ export default function App() {
                       {isProcessing ? (
                         <>
                           <RefreshCw className="h-4 w-4 animate-spin" />
-                          <span>Procesando y Sanitizando Archivos...</span>
+                          <span>{processingPhase || 'Procesando y Sanitizando Archivos...'}</span>
                         </>
                       ) : (
                         <>
@@ -679,7 +949,7 @@ export default function App() {
                               disabled={file.status === 'done' || isProcessing}
                             >
                               <Shield className="h-3 w-3" />
-                              <span>{file.status === 'done' ? 'Anonimizado' : 'Anonimizar'}</span>
+                              <span>{file.status === 'done' ? 'Seudonimizado' : 'Seudonimizar'}</span>
                             </button>
                           </div>
                         </div>
@@ -812,9 +1082,12 @@ export default function App() {
                                 <p className="text-[10px] uppercase font-bold tracking-wider text-zinc-400 mb-2 font-mono">Contenido Sanitizado</p>
                                 <div className="bg-amber-50/10 border border-amber-200/50 rounded-lg p-3 text-xs font-mono text-zinc-800 h-[200px] overflow-y-auto whitespace-pre-wrap relative">
                                   {isProcessing ? (
-                                    <div className="flex flex-col items-center justify-center h-full text-amber-600 space-y-2">
+                                    <div className="flex flex-col items-center justify-center h-full text-amber-600 space-y-2.5 p-4 text-center">
                                       <RefreshCw className="h-6 w-6 animate-spin text-amber-500" />
-                                      <p className="text-xs font-semibold">Sanitizando datos sensibles...</p>
+                                      <p className="text-xs font-bold font-mono text-zinc-800">{processingPhase || 'Sanitizando datos sensibles...'}</p>
+                                      <div className="w-3/4 bg-zinc-200 h-1.5 rounded-full overflow-hidden">
+                                        <div className="bg-amber-500 h-full w-full animate-pulse"></div>
+                                      </div>
                                     </div>
                                   ) : selectedFile.status === 'done' ? (
                                     selectedFile.redactedContent
@@ -824,7 +1097,7 @@ export default function App() {
                                       className="w-full h-full flex flex-col items-center justify-center text-amber-600 hover:text-amber-700 bg-amber-50/40 hover:bg-amber-50/80 rounded-lg p-4 transition border border-dashed border-amber-300/80 cursor-pointer group"
                                     >
                                       <Shield className="h-7 w-7 text-amber-500 group-hover:scale-110 transition mb-2" />
-                                      <span className="text-xs font-bold uppercase tracking-wider">Anonimizar ahora con IA Local</span>
+                                      <span className="text-xs font-bold uppercase tracking-wider">Seudonimizar ahora con IA Local</span>
                                       <span className="text-[10px] text-zinc-500 font-sans mt-1">Haga clic aquí para sanitizar datos sensibles</span>
                                     </button>
                                   )}
@@ -858,7 +1131,7 @@ export default function App() {
                         <div className="flex flex-col items-center justify-center py-16 text-zinc-400">
                           <Eye className="h-10 w-10 text-zinc-300 mb-3" />
                           <p className="text-sm font-semibold text-zinc-850">Ningún archivo seleccionado</p>
-                          <p className="text-xs text-zinc-500 text-center max-w-xs mt-1">Seleccione un archivo de la cola para ver el análisis de datos e iniciar la anonimización.</p>
+                          <p className="text-xs text-zinc-500 text-center max-w-xs mt-1">Seleccione un archivo de la cola para ver el análisis de datos e iniciar la seudonimización.</p>
                         </div>
                       )}
                     </div>
@@ -916,7 +1189,7 @@ export default function App() {
                     Traducción Inversa (Reversible PII Portal)
                   </h2>
                   <p className="text-xs text-zinc-500 leading-relaxed font-sans">
-                    Cargue el documento devuelto por la IA (`.docx`, `.csv`, `.txt`, `.xlsx`) y el archivo de llave <code className="text-emerald-600 font-bold">.reverse.key</code> para desanonimizar los datos y exportar el documento desanonimizado en el **mismo formato original**.
+                    Cargue el documento devuelto por la IA (`.docx`, `.csv`, `.txt`, `.xlsx`) y el archivo de llave <code className="text-emerald-600 font-bold">.reverse.key</code> para des-seudonimizar los datos y exportar el documento des-seudonimizado en el **mismo formato original**.
                   </p>
                 </div>
 
@@ -930,7 +1203,7 @@ export default function App() {
                       </label>
                       <label className="w-full flex items-center justify-center gap-2 border border-zinc-200 hover:border-emerald-500 bg-zinc-50 hover:bg-zinc-100 p-3 rounded-lg cursor-pointer transition text-xs font-semibold text-zinc-700">
                         <Upload className="h-4 w-4 text-emerald-600" />
-                        <span>{reverseFileName !== 'documento_restaurado.docx' ? reverseFileName : 'Seleccionar Documento para Desanonimizar'}</span>
+                        <span>{reverseFileName !== 'documento_restaurado.docx' ? reverseFileName : 'Seleccionar Documento para Des-seudonimizar'}</span>
                         <input 
                           type="file" 
                           accept=".txt,.csv,.docx,.xlsx,.json"
@@ -942,7 +1215,7 @@ export default function App() {
 
                     <div>
                       <label className="block text-xs uppercase tracking-wider font-bold text-zinc-500 mb-2 font-mono">
-                        Texto / Contenido Anonimizado
+                        Texto / Contenido Seudonimizado
                       </label>
                       <textarea 
                         rows={4}
@@ -1000,7 +1273,7 @@ export default function App() {
                       {isReversing ? (
                         <>
                           <RefreshCw className="h-4 w-4 animate-spin" />
-                          <span>Desanonimizando documento...</span>
+                          <span>{reversePhase || 'Des-seudonimizando documento...'}</span>
                         </>
                       ) : (
                         <>
@@ -1011,11 +1284,11 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* Salida del texto original restaurado y Exportación Formato Original (Bug 6) */}
+                  {/* Salida del texto original restaurado y Exportación Formato Original */}
                   <div className="bg-white border border-zinc-200 p-5 rounded-2xl flex flex-col justify-between shadow-sm">
                     <div>
                       <h4 className="text-xs uppercase tracking-wider font-bold text-zinc-500 mb-4 font-mono flex items-center justify-between">
-                        <span>Resultado Desanonimizado</span>
+                        <span>Resultado Des-seudonimizado</span>
                         {isReverseDone && (
                           <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1">
                             <CheckCircle2 className="h-3 w-3" />
@@ -1026,9 +1299,12 @@ export default function App() {
 
                       <div className="bg-zinc-50 border border-zinc-100 rounded-lg p-4 text-xs font-mono text-zinc-800 min-h-[220px] whitespace-pre-wrap relative">
                         {isReversing ? (
-                          <div className="flex flex-col items-center justify-center h-full text-emerald-600 space-y-2 py-12">
+                          <div className="flex flex-col items-center justify-center h-full text-emerald-600 space-y-3 py-10 text-center">
                             <RefreshCw className="h-7 w-7 animate-spin text-emerald-500" />
-                            <p className="text-xs font-semibold">Reemplazando tokens y reconstruyendo archivo...</p>
+                            <p className="text-xs font-bold font-mono text-zinc-800">{reversePhase || 'Reemplazando tokens y reconstruyendo archivo...'}</p>
+                            <div className="w-2/3 bg-zinc-200 h-1.5 rounded-full overflow-hidden">
+                              <div className="bg-emerald-500 h-full w-full animate-pulse"></div>
+                            </div>
                           </div>
                         ) : reverseOutput ? (
                           reverseOutput
@@ -1039,33 +1315,47 @@ export default function App() {
                     </div>
 
                     {isReverseDone && (
-                      <div className="mt-4 pt-4 border-t border-zinc-100 flex items-center justify-between">
-                        <div className="text-[11px] font-mono text-zinc-500">
-                          Exportar como: <span className="font-bold text-emerald-700">.{reverseFileExt.toUpperCase()}</span>
+                      <div className="mt-4 pt-4 border-t border-zinc-100 flex flex-wrap items-center justify-between gap-3">
+                        <div className="text-[11px] font-mono text-zinc-500 flex items-center gap-2">
+                          <span>Formato: <strong className="text-emerald-700 font-bold">.{reverseFileExt.toUpperCase()}</strong></span>
                         </div>
-                        <button 
-                          onClick={() => {
-                            const mimeMap: Record<string, string> = {
-                              docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                              csv: 'text/csv',
-                              txt: 'text/plain',
-                              xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                            };
-                            const mime = mimeMap[reverseFileExt] || 'text/plain';
-                            const blob = new Blob([reverseOutput], { type: mime });
-                            const url = URL.createObjectURL(blob);
-                            const link = document.createElement('a');
-                            link.href = url;
-                            link.download = reverseFileName.endsWith(`.${reverseFileExt}`) ? reverseFileName : `${reverseFileName}.${reverseFileExt}`;
-                            document.body.appendChild(link);
-                            link.click();
-                            document.body.removeChild(link);
-                          }}
-                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-sm rounded-xl text-xs flex items-center gap-2 transition"
-                        >
-                          <Download className="h-4 w-4" />
-                          <span>Exportar Documento (.{reverseFileExt.toUpperCase()})</span>
-                        </button>
+                        
+                        <div className="flex items-center gap-2">
+                          {/* Botón de enlace a carpeta de descargas/salida */}
+                          <button 
+                            type="button"
+                            onClick={() => setShowFolderModal(true)}
+                            className="px-3 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-bold shadow-sm rounded-xl text-xs flex items-center gap-1.5 transition border border-zinc-200"
+                            title="Ver ubicación en carpeta local de descargas"
+                          >
+                            <FolderOpen className="h-4 w-4 text-zinc-600" />
+                            <span>Abrir Carpeta</span>
+                          </button>
+
+                          <button 
+                            onClick={() => {
+                              const mimeMap: Record<string, string> = {
+                                docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                                csv: 'text/csv',
+                                txt: 'text/plain',
+                                xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                              };
+                              const mime = mimeMap[reverseFileExt] || 'text/plain';
+                              const blob = new Blob([reverseOutput], { type: mime });
+                              const url = URL.createObjectURL(blob);
+                              const link = document.createElement('a');
+                              link.href = url;
+                              link.download = reverseFileName.endsWith(`.${reverseFileExt}`) ? reverseFileName : `${reverseFileName}.${reverseFileExt}`;
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
+                            }}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-sm rounded-xl text-xs flex items-center gap-2 transition"
+                          >
+                            <Download className="h-4 w-4" />
+                            <span>Exportar Documento (.{reverseFileExt.toUpperCase()})</span>
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>

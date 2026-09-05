@@ -68,10 +68,12 @@ if not hasattr(ft, "FileDropEvent"):
 from validador import ValidadorLicencia
 from app_offline import (
     ejecutar_procesamiento_lotes, 
+    ejecutar_anonimizacion_real_lotes,
     revertir_anonimizacion,
     ejecutar_reversion_archivo,
     CARPETA_ENTRADA, 
     CARPETA_SALIDA_DEFECTO,
+    CARPETA_SALIDA_ANONIMIZADA,
     CARPETA_PROCESADOS,
     cargar_diccionario_corporativo,
     RUTA_DICCIONARIO
@@ -143,14 +145,16 @@ async def main(page: ft.Page):
     # --- VARIABLES DE ESTADO DEL WORKSPACE ---
     lista_archivos_entrada = []
     carpeta_salida_configurada = os.path.abspath(CARPETA_SALIDA_DEFECTO)
+    carpeta_salida_anonimizada_configurada = os.path.abspath(CARPETA_SALIDA_ANONIMIZADA)
     menu_activo = "sanitizador"
     archivo_seleccionado_preview = None
+    archivo_seleccionado_preview_anon = None
     mapa_key_cargado_traduccion = {}
     archivo_anonimizado_traduccion_path = None
     nombre_archivo_traduccion_original = None
 
-    # --- CONTROLES DE LA INTERFAZ ---
-    texto_estado_sanitizador = ft.Text("Listo para escanear y anonimizar.", size=12, color=TEXT_MUTED)
+    # --- CONTROLES DE SEUDONIMIZACIÓN (REVERSIBLE) ---
+    texto_estado_sanitizador = ft.Text("Listo para escanear y seudonimizar.", size=12, color=TEXT_MUTED)
     barra_progreso_sanitizador = ft.ProgressBar(visible=False, color=ACCENT_ORANGE)
     btn_procesar_lote = ft.ElevatedButton("Procesar todo el lote (IA local)", icon=ft.icons.SHIELD, color="#FFFFFF", bgcolor=ACCENT_ORANGE, width=320, disabled=True)
 
@@ -166,6 +170,43 @@ async def main(page: ft.Page):
 
     vista_procesados_unificada = ft.ListView(expand=1, spacing=8, height=240)
     card_visibilidad_procesados_y_salida = ft.Container()
+
+    # --- CONTROLES DE ANONIMIZACIÓN (IRREVERSIBLE - RGPD) ---
+    texto_estado_anon = ft.Text("Listo para anonimizar de forma irreversible (RGPD).", size=12, color=TEXT_MUTED)
+    barra_progreso_anon = ft.ProgressBar(visible=False, color=EMERALD_GREEN)
+    btn_procesar_lote_anon = ft.ElevatedButton("Anonimizar todo el lote (Irreversible - RGPD)", icon=ft.icons.VERIFIED_USER, color="#FFFFFF", bgcolor=EMERALD_GREEN, height=40, expand=True, disabled=True)
+
+    dd_k_anonimato = ft.Dropdown(
+        label="Nivel k-anonimato (Tablas)",
+        options=[
+            ft.dropdown.Option("3", "k = 3 (Uso interno / Retención)"),
+            ft.dropdown.Option("5", "k = 5 (Cesión a terceros / Modelos IA)"),
+            ft.dropdown.Option("10", "k = 10 (Máxima protección)")
+        ],
+        value="3",
+        text_size=12,
+        expand=True
+    )
+    chk_generalizar_cuasi = ft.Checkbox(
+        label="Generalizar cuasi-identificadores (Fechas a años, CPs truncados)",
+        value=True,
+        check_color="#FFFFFF",
+        active_color=EMERALD_GREEN,
+        label_style=ft.TextStyle(size=12, color="#FFFFFF")
+    )
+
+    vista_cola_archivos_anon = ft.ListView(expand=1, spacing=6, height=180)
+    panel_inspector_preview_anon = ft.Container(
+        content=ft.Column([
+            ft.Icon(ft.icons.REMOVE_RED_EYE_OUTLINED, size=28, color=TEXT_MUTED),
+            ft.Text("Ningún archivo seleccionado", size=11, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+            ft.Text("Seleccione un archivo para previsualizar.", size=10, color=TEXT_MUTED, text_align=ft.TextAlign.CENTER)
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER, spacing=4),
+        bgcolor="#1E293B44", padding=10, border_radius=8, border=ft.border.all(1, "#334155"), height=110, expand=True
+    )
+
+    vista_anonimizados_unificada = ft.ListView(expand=1, spacing=8, height=240)
+    card_visibilidad_anonimizados = ft.Container()
 
     dd_archivo_origen_key = ft.Dropdown(
         label="Documento procesado de origen",
@@ -447,6 +488,203 @@ async def main(page: ft.Page):
         refrescar_dropdown_archivos_traduccion()
         page.update()
 
+    # --- FUNCIONES DEL MÓDULO DE ANONIMIZACIÓN (IRREVERSIBLE - RGPD) ---
+    def click_procesar_individual_anon(fname):
+        _, ext = os.path.splitext(fname.lower())
+        if ext not in EXT_PERMITIDAS:
+            texto_estado_anon.value = f"⚠️ {fname} no es un formato compatible."
+            texto_estado_anon.color = CRIMSON_ERROR
+            page.update()
+            return
+
+        barra_progreso_anon.visible = True
+        texto_estado_anon.value = f"Anonimizando {fname} de forma irreversible (RGPD)..."
+        texto_estado_anon.color = EMERALD_GREEN
+        page.update()
+
+        try:
+            k_val = int(dd_k_anonimato.value or 3)
+            cuasi_val = chk_generalizar_cuasi.value
+            ejecutar_anonimizacion_real_lotes(
+                carpeta_salida=carpeta_salida_anonimizada_configurada,
+                k_umbral=k_val,
+                generalizar_cuasi=cuasi_val
+            )
+            texto_estado_anon.value = f"¡Éxito! Archivo {fname} anonimizado con Certificado RGPD."
+            texto_estado_anon.color = EMERALD_GREEN
+        except Exception as ex:
+            texto_estado_anon.value = f"Error: {str(ex)}"
+            texto_estado_anon.color = CRIMSON_ERROR
+
+        barra_progreso_anon.visible = False
+        refrescar_vistas_archivos_anon()
+        try:
+            card_visibilidad_anonimizados.scroll_into_view()
+        except Exception:
+            pass
+
+    def seleccionar_para_preview_anon(nombre_archivo):
+        nonlocal archivo_seleccionado_preview_anon
+        archivo_seleccionado_preview_anon = nombre_archivo
+        ruta_f = os.path.join(CARPETA_ENTRADA, nombre_archivo)
+        _, ext_f = os.path.splitext(nombre_archivo.lower())
+        es_comp = ext_f in EXT_PERMITIDAS
+        
+        contenido_preliminar = ""
+        if os.path.exists(ruta_f):
+            try:
+                if nombre_archivo.endswith((".txt", ".csv", ".json", ".md")):
+                    with open(ruta_f, "r", encoding="utf-8", errors="ignore") as f_in:
+                        contenido_preliminar = f_in.read(300)
+                else:
+                    contenido_preliminar = f"Documento preparado para anonimización: {nombre_archivo}"
+            except Exception as ex:
+                contenido_preliminar = f"Error de lectura: {ex}"
+
+        panel_inspector_preview_anon.content = ft.Column([
+            ft.Row([
+                ft.Icon(ft.icons.DESCRIPTION_OUTLINED if es_comp else ft.icons.WARNING_AMBER_ROUNDED, color=EMERALD_GREEN if es_comp else CRIMSON_ERROR, size=16),
+                ft.Text(nombre_archivo, size=11, weight=ft.FontWeight.BOLD, color="#FFFFFF", max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, width=220)
+            ]),
+            ft.Container(
+                content=ft.Text(contenido_preliminar if es_comp else "⚠️ Formato no compatible. Formatos permitidos: .txt, .csv, .docx, .xlsx, .pdf, .json, .md, .png, .jpg", size=10, color="#E2E8F0" if es_comp else CRIMSON_ERROR),
+                bgcolor="#0F172A", padding=6, border_radius=4, height=45
+            ),
+            ft.Row([
+                ft.ElevatedButton("Abrir", icon=ft.icons.OPEN_IN_NEW, color="#FFFFFF", bgcolor="#334155", height=28, on_click=lambda _, fn=nombre_archivo, r=ruta_f: abrir_documento_o_dialogo(fn, r)),
+                ft.ElevatedButton("Anonimizar ahora", icon=ft.icons.VERIFIED_USER, color="#FFFFFF", bgcolor=EMERALD_GREEN if es_comp else "#475569", height=28, disabled=not es_comp, on_click=lambda _: click_procesar_individual_anon(nombre_archivo))
+            ], spacing=6)
+        ], spacing=4)
+        page.update()
+
+    def refrescar_vistas_archivos_anon():
+        # 1. Cola de entrada para anonimizar
+        try:
+            todos = os.listdir(CARPETA_ENTRADA)
+            archivos_entrada = [f for f in todos if not f.startswith(".") and not f.startswith("~$") and os.path.isfile(os.path.join(CARPETA_ENTRADA, f))]
+            texto_estado_anon.value = f"Cola lista: {len(archivos_entrada)} archivo(s) pendientes para anonimizar."
+            texto_estado_anon.color = EMERALD_GREEN
+            btn_procesar_lote_anon.disabled = len(archivos_entrada) == 0
+        except Exception as ex:
+            texto_estado_anon.value = f"Error en entrada: {str(ex)}"
+            texto_estado_anon.color = CRIMSON_ERROR
+            archivos_entrada = []
+
+        vista_cola_archivos_anon.controls.clear()
+        if not archivos_entrada:
+            vista_cola_archivos_anon.controls.append(
+                ft.Container(
+                    content=ft.Text("Carpeta /entrada vacía.", size=11, color=TEXT_MUTED, italic=True, text_align=ft.TextAlign.CENTER),
+                    padding=10, alignment=ft.alignment.center
+                )
+            )
+        else:
+            for f in archivos_entrada:
+                ruta_f = os.path.join(CARPETA_ENTRADA, f)
+                _, ext_f = os.path.splitext(f.lower())
+                es_compatible = ext_f in EXT_PERMITIDAS
+
+                def del_file_anon(e, fname=f):
+                    try:
+                        os.remove(os.path.join(CARPETA_ENTRADA, fname))
+                        refrescar_vistas_archivos_anon()
+                    except Exception as ex:
+                        print(f"Error borrando: {ex}")
+
+                vista_cola_archivos_anon.controls.append(
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Container(
+                                content=ft.Row([
+                                    ft.Icon(ft.icons.INSERT_DRIVE_FILE_OUTLINED if es_compatible else ft.icons.WARNING_AMBER_ROUNDED, color=EMERALD_GREEN if es_compatible else CRIMSON_ERROR, size=15),
+                                    ft.Text(f, size=11, weight=ft.FontWeight.W_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, width=170),
+                                    ft.Container(
+                                        content=ft.Text("No compatible", size=9, color="#FFFFFF", weight=ft.FontWeight.BOLD),
+                                        bgcolor=CRIMSON_ERROR, padding=3, border_radius=3
+                                    ) if not es_compatible else ft.Container()
+                                ]),
+                                expand=True,
+                                on_click=lambda _, fn=f: seleccionar_para_preview_anon(fn)
+                            ),
+                            ft.ElevatedButton("Anonimizar", icon=ft.icons.VERIFIED_USER, color="#FFFFFF", bgcolor=EMERALD_GREEN if es_compatible else "#475569", height=26, disabled=not es_compatible, on_click=lambda _, fn=f: click_procesar_individual_anon(fn)),
+                            ft.IconButton(ft.icons.DELETE_OUTLINED, icon_size=14, icon_color=CRIMSON_ERROR, on_click=del_file_anon)
+                        ], alignment=ft.MainAxisAlignment.BETWEEN),
+                        bgcolor="#1E293B66", padding=4, border_radius=4
+                    )
+                )
+
+        # 2. Caja de Archivos Anonimizados RGPD
+        vista_anonimizados_unificada.controls.clear()
+        try:
+            archivos_anon = [f for f in os.listdir(carpeta_salida_anonimizada_configurada) if not f.startswith(".") and not f.startswith("~$")] if os.path.exists(carpeta_salida_anonimizada_configurada) else []
+            archivos_anon.sort(key=lambda x: os.path.getmtime(os.path.join(carpeta_salida_anonimizada_configurada, x)), reverse=True)
+        except Exception:
+            archivos_anon = []
+
+        if not archivos_anon:
+            vista_anonimizados_unificada.controls.append(
+                ft.Container(content=ft.Text("No hay archivos en la carpeta de anonimización aún.", size=11, color=TEXT_MUTED, italic=True), padding=10)
+            )
+        else:
+            for f in archivos_anon:
+                ruta_doc = os.path.join(carpeta_salida_anonimizada_configurada, f)
+                base_sin_ext = os.path.splitext(f)[0]
+                ruta_cert = os.path.join(carpeta_salida_anonimizada_configurada, f"Certificado_Anonimizacion_{base_sin_ext}.txt")
+                tiene_cert = os.path.exists(ruta_cert)
+                es_cert = f.startswith("Certificado_Anonimizacion_")
+
+                if es_cert:
+                    vista_anonimizados_unificada.controls.append(
+                        ft.Container(
+                            content=ft.Row([
+                                ft.Row([
+                                    ft.Icon(ft.icons.VERIFIED_USER, color=EMERALD_GREEN, size=16),
+                                    ft.Text(f, size=11, weight=ft.FontWeight.BOLD, color=EMERALD_GREEN, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, width=220),
+                                    ft.Container(
+                                        content=ft.Text("CERTIFICADO RGPD", size=8, color="#FFFFFF", weight=ft.FontWeight.BOLD),
+                                        bgcolor="#059669", padding=3, border_radius=3
+                                    )
+                                ], expand=True),
+                                ft.ElevatedButton("Ver Certificado", icon=ft.icons.ARTICLE, color="#FFFFFF", bgcolor="#059669", height=28, on_click=lambda _, fn=f, r=ruta_doc: mostrar_dialogo_ver_documento(fn, r))
+                            ], alignment=ft.MainAxisAlignment.BETWEEN),
+                            bgcolor="#05966922",
+                            border=ft.border.all(1, "#05966944"),
+                            padding=6, border_radius=6
+                        )
+                    )
+                else:
+                    vista_anonimizados_unificada.controls.append(
+                        ft.Container(
+                            content=ft.Row([
+                                ft.Row([
+                                    ft.Icon(ft.icons.SHIELD, color=EMERALD_GREEN, size=16),
+                                    ft.Text(f, size=12, weight=ft.FontWeight.W_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, width=200),
+                                    ft.Container(
+                                        content=ft.Text("ANÓNIMO RGPD", size=8, color="#FFFFFF", weight=ft.FontWeight.BOLD),
+                                        bgcolor="#059669", padding=3, border_radius=3
+                                    )
+                                ], expand=True),
+                                ft.Row([
+                                    ft.ElevatedButton("Abrir documento", icon=ft.icons.OPEN_IN_NEW, color="#FFFFFF", bgcolor=EMERALD_GREEN, height=30, on_click=lambda _, fn=f, r=ruta_doc: abrir_documento_o_dialogo(fn, r)),
+                                    ft.ElevatedButton(
+                                        "Certificado RGPD",
+                                        icon=ft.icons.ARTICLE,
+                                        color="#FFFFFF",
+                                        bgcolor="#334155",
+                                        height=30,
+                                        disabled=not tiene_cert,
+                                        on_click=lambda _, fn=base_sin_ext, r=ruta_cert: mostrar_dialogo_ver_documento(f"Certificado {fn}", r)
+                                    )
+                                ], spacing=6)
+                            ], alignment=ft.MainAxisAlignment.BETWEEN),
+                            bgcolor="#05966922",
+                            border=ft.border.all(1, "#05966944"),
+                            padding=6, border_radius=6
+                        )
+                    )
+
+        page.update()
+
     def refrescar_diccionario_view():
         wrap_chips_dic.controls.clear()
         terminos = cargar_diccionario_corporativo()
@@ -679,7 +917,7 @@ async def main(page: ft.Page):
                 ], spacing=8),
                 bgcolor=SURFACE_CARD, padding=ft.Padding(left=12, right=12, top=8, bottom=8), border_radius=16, border=ft.border.all(1, "#334155")
             )
-        ], spacing=14, alignment=ft.MainAxisAlignment.END)
+        ], spacing=14, alignment=ft.MainAxisAlignment.END, wrap=False)
 
         header_responsive = ft.ResponsiveRow([
             ft.Container(content=header_brand, col={"sm": 12, "md": 7}),
@@ -687,7 +925,8 @@ async def main(page: ft.Page):
         ], alignment=ft.MainAxisAlignment.BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
         # Menú Lateral Sidebar
-        btn_nav_sanitizador = ft.ElevatedButton("Sanitizador de archivos", icon=ft.icons.SHIELD_OUTLINED, color="#FFFFFF", bgcolor=ACCENT_ORANGE, height=42)
+        btn_nav_sanitizador = ft.ElevatedButton("Seudonimización (reversible)", icon=ft.icons.SHIELD_OUTLINED, color="#FFFFFF", bgcolor=ACCENT_ORANGE, height=42)
+        btn_nav_anonimizador = ft.ElevatedButton("Anonimización (irreversible)", icon=ft.icons.VERIFIED_USER, color="#FFFFFF", bgcolor=SURFACE_CARD, height=42)
         btn_nav_traduccion = ft.ElevatedButton("Traducción inversa", icon=ft.icons.SWAP_HORIZ, color="#FFFFFF", bgcolor=SURFACE_CARD, height=42)
         btn_nav_diccionario = ft.ElevatedButton("Diccionario empresa", icon=ft.icons.MENU_BOOK_OUTLINED, color="#FFFFFF", bgcolor=SURFACE_CARD, height=42)
         btn_nav_licencias = ft.ElevatedButton("Licencias y simulación", icon=ft.icons.VPN_KEY_OUTLINED, color="#FFFFFF", bgcolor=SURFACE_CARD, height=42)
@@ -697,27 +936,165 @@ async def main(page: ft.Page):
             nonlocal menu_activo
             menu_activo = nombre
             btn_nav_sanitizador.bgcolor = ACCENT_ORANGE if nombre == "sanitizador" else SURFACE_CARD
+            btn_nav_anonimizador.bgcolor = ACCENT_ORANGE if nombre == "anonimizador" else SURFACE_CARD
             btn_nav_traduccion.bgcolor = ACCENT_ORANGE if nombre == "traduccion" else SURFACE_CARD
             btn_nav_diccionario.bgcolor = ACCENT_ORANGE if nombre == "diccionario" else SURFACE_CARD
             btn_nav_licencias.bgcolor = ACCENT_ORANGE if nombre == "licencias" else SURFACE_CARD
             btn_nav_codigo.bgcolor = ACCENT_ORANGE if nombre == "codigo" else SURFACE_CARD
 
             panel_sanitizador.visible = (nombre == "sanitizador")
+            panel_anonimizador.visible = (nombre == "anonimizador")
             panel_traduccion.visible = (nombre == "traduccion")
             panel_diccionario.visible = (nombre == "diccionario")
             panel_licencias.visible = (nombre == "licencias")
             panel_codigo.visible = (nombre == "codigo")
 
-            if nombre == "traduccion":
+            if nombre == "anonimizador":
+                refrescar_vistas_archivos_anon()
+            elif nombre == "traduccion":
                 refrescar_dropdown_archivos_traduccion()
 
             page.update()
 
         btn_nav_sanitizador.on_click = lambda _: cambiar_seccion("sanitizador")
+        btn_nav_anonimizador.on_click = lambda _: cambiar_seccion("anonimizador")
         btn_nav_traduccion.on_click = lambda _: cambiar_seccion("traduccion")
         btn_nav_diccionario.on_click = lambda _: cambiar_seccion("diccionario")
         btn_nav_licencias.on_click = lambda _: cambiar_seccion("licencias")
         btn_nav_codigo.on_click = lambda _: cambiar_seccion("codigo")
+
+        # --- SISTEMA DE TOUR GUIADO INTERACTIVO CON ENFOQUE ---
+        pasos_tour = [
+            {
+                "seccion": "sanitizador",
+                "titulo": "1. Seudonimización Reversible (Para interactuar con LLMs)",
+                "icono": ft.icons.SHIELD_OUTLINED,
+                "color": ACCENT_ORANGE,
+                "descripcion": "Arrastra documentos (PDF, DOCX, XLSX, TXT, OCR) para detectar datos sensibles. Reemplaza PII por etiquetas como [PERSONA_1] y genera un archivo .key para revertir la respuesta de ChatGPT o Claude conservando la privacidad total."
+            },
+            {
+                "seccion": "anonimizador",
+                "titulo": "2. Anonimización Irreversible (Conforme a RGPD)",
+                "icono": ft.icons.VERIFIED_USER,
+                "color": EMERALD_GREEN,
+                "descripcion": "Destruye y generaliza datos personales de forma 100% irreversible según el Recital 26 y guías EDPB. Permite configurar k-anonimato (k=3, 5, 10), generalización de fechas/CPs y emite Certificados de Auditoría RGPD."
+            },
+            {
+                "seccion": "traduccion",
+                "titulo": "3. Traducción Inversa (De-seudonimización inteligente)",
+                "icono": ft.icons.SWAP_HORIZ,
+                "color": ACCENT_ORANGE,
+                "descripcion": "Pega aquí la respuesta generada por la IA o sube el documento protegido. Lia Vault aplicará la llave (.key) correspondiente para devolverle los nombres y datos reales originales en tu equipo."
+            },
+            {
+                "seccion": "diccionario",
+                "titulo": "4. Diccionario Confidencial Corporativo",
+                "icono": ft.icons.MENU_BOOK_OUTLINED,
+                "color": NEON_BLUE,
+                "descripcion": "Define nombres de proyectos secretos, códigos de clientes o patentes internas. Cualquier término que añadas aquí será censurado automáticamente en todos los documentos e imágenes."
+            },
+            {
+                "seccion": "codigo",
+                "titulo": "5. Privacidad & Despliegue On-Premise",
+                "icono": ft.icons.CODE,
+                "color": EMERALD_GREEN,
+                "descripcion": "Todos los modelos de IA y OCR corren de forma 100% local en tu procesador/GPU. Cero fugas hacia servidores externos o la nube. ¡Disfruta de Lia Vault!"
+            }
+        ]
+
+        paso_tour_actual = 0
+        txt_tour_progreso = ft.Text("Paso 1 de 5", size=11, weight=ft.FontWeight.BOLD, color=ACCENT_ORANGE)
+        txt_tour_titulo = ft.Text("", size=15, weight=ft.FontWeight.BOLD, color="#FFFFFF")
+        txt_tour_desc = ft.Text("", size=12, color="#E2E8F0")
+        icon_tour_paso = ft.Icon(ft.icons.HELP_OUTLINE, size=24, color=ACCENT_ORANGE)
+
+        btn_tour_anterior = ft.OutlinedButton("Anterior", height=32, disabled=True)
+        btn_tour_siguiente = ft.ElevatedButton("Siguiente", height=32, bgcolor=ACCENT_ORANGE, color="#FFFFFF")
+        btn_tour_cerrar = ft.TextButton("Omitir tour", style=ft.ButtonStyle(color=TEXT_MUTED))
+
+        def cerrar_tour(_=None):
+            overlay_tour_modal.visible = False
+            page.update()
+
+        def mostrar_paso_tour(indice):
+            nonlocal paso_tour_actual
+            paso_tour_actual = max(0, min(indice, len(pasos_tour) - 1))
+            paso = pasos_tour[paso_tour_actual]
+
+            cambiar_seccion(paso["seccion"])
+
+            txt_tour_progreso.value = f"Paso {paso_tour_actual + 1} de {len(pasos_tour)}"
+            txt_tour_titulo.value = paso["titulo"]
+            txt_tour_desc.value = paso["descripcion"]
+            icon_tour_paso.name = paso["icono"]
+            icon_tour_paso.color = paso["color"]
+
+            btn_tour_anterior.disabled = (paso_tour_actual == 0)
+            if paso_tour_actual == len(pasos_tour) - 1:
+                btn_tour_siguiente.text = "¡Comenzar a usar Lia!"
+                btn_tour_siguiente.bgcolor = EMERALD_GREEN
+            else:
+                btn_tour_siguiente.text = "Siguiente"
+                btn_tour_siguiente.bgcolor = ACCENT_ORANGE
+
+            overlay_tour_modal.visible = True
+            page.update()
+
+        def click_tour_sig(_=None):
+            if paso_tour_actual < len(pasos_tour) - 1:
+                mostrar_paso_tour(paso_tour_actual + 1)
+            else:
+                cerrar_tour()
+
+        def click_tour_ant(_=None):
+            if paso_tour_actual > 0:
+                mostrar_paso_tour(paso_tour_actual - 1)
+
+        btn_tour_anterior.on_click = click_tour_ant
+        btn_tour_siguiente.on_click = click_tour_sig
+        btn_tour_cerrar.on_click = cerrar_tour
+
+        card_tour_flotante = ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Row([
+                        icon_tour_paso,
+                        ft.Column([
+                            txt_tour_progreso,
+                            txt_tour_titulo
+                        ], spacing=2)
+                    ], spacing=10),
+                    ft.IconButton(ft.icons.CLOSE, icon_size=18, icon_color=TEXT_MUTED, on_click=cerrar_tour)
+                ], alignment=ft.MainAxisAlignment.BETWEEN),
+                ft.Divider(height=12, color="#334155"),
+                txt_tour_desc,
+                ft.Divider(height=12, color="#334155"),
+                ft.Row([
+                    btn_tour_cerrar,
+                    ft.Row([
+                        btn_tour_anterior,
+                        btn_tour_siguiente
+                    ], spacing=8)
+                ], alignment=ft.MainAxisAlignment.BETWEEN)
+            ], spacing=10),
+            bgcolor="#0F172A",
+            padding=20,
+            border_radius=12,
+            border=ft.border.all(2, ACCENT_ORANGE),
+            shadow=ft.BoxShadow(blur_radius=25, color="#000000CC"),
+            width=540
+        )
+
+        overlay_tour_modal = ft.Container(
+            content=card_tour_flotante,
+            alignment=ft.alignment.center,
+            bgcolor="#000000B3",
+            visible=False,
+            expand=True
+        )
+
+        def iniciar_tour_guiado(paso=0):
+            mostrar_paso_tour(paso)
 
         card_compromiso_offline = ft.Container(
             content=ft.Column([
@@ -741,10 +1118,21 @@ async def main(page: ft.Page):
             bgcolor=SURFACE_CARD, padding=16, border_radius=10, border=ft.border.all(1, "#334155")
         )
 
+        btn_tour_sidebar = ft.ElevatedButton(
+            "Tour guiado interactivo",
+            icon=ft.icons.EXPLORE,
+            color="#FFFFFF",
+            bgcolor="#334155",
+            height=40,
+            on_click=lambda _: iniciar_tour_guiado(paso=0),
+            tooltip="Iniciar recorrido interactivo por las funciones de Lia Vault"
+        )
+
         columna_sidebar = ft.Container(
             content=ft.Column([
                 ft.Text("FUNCIONES LOCALES", size=11, weight=ft.FontWeight.BOLD, color=TEXT_MUTED),
                 btn_nav_sanitizador,
+                btn_nav_anonimizador,
                 btn_nav_traduccion,
                 btn_nav_diccionario,
                 ft.Divider(height=16, color="#334155"),
@@ -752,8 +1140,9 @@ async def main(page: ft.Page):
                 btn_nav_licencias,
                 btn_nav_codigo,
                 ft.Divider(height=16, color="#334155"),
-                card_compromiso_offline
-            ], spacing=12),
+                card_compromiso_offline,
+                btn_tour_sidebar
+            ], spacing=10),
             col={"sm": 12, "md": 4, "lg": 3}
         )
 
@@ -881,6 +1270,131 @@ async def main(page: ft.Page):
             barra_progreso_sanitizador,
             texto_estado_sanitizador,
             card_visibilidad_procesados_y_salida
+        ], spacing=16)
+
+        # ==========================================
+        # SECCIÓN 1.5: ANONIMIZACIÓN IRREVERSIBLE (RGPD)
+        # ==========================================
+        card_dropzone_anon = ft.Container(
+            content=ft.Column([
+                ft.Icon(ft.icons.UNARCHIVE_OUTLINED, size=34, color=TEXT_MUTED),
+                ft.Text("Seleccionar archivos para anonimizar", size=13, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+                ft.Text("Formatos: TXT, CSV, DOCX, XLSX, PDF, PNG/JPG", size=11, color=TEXT_MUTED)
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER, spacing=6),
+            bgcolor="#1E293B88",
+            padding=16,
+            border_radius=8,
+            border=ft.border.all(1, "#334155"),
+            alignment=ft.alignment.center,
+            on_click=click_abrir_picker_documentos
+        )
+
+        card_header_anonimizador = ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Icon(ft.icons.VERIFIED_USER, color=EMERALD_GREEN, size=22),
+                    ft.Text("Anonimización RGPD (Irreversible)", size=16, weight=ft.FontWeight.BOLD, color="#FFFFFF")
+                ], spacing=8),
+                ft.Text(
+                    "Anonimización destructiva conforme a RGPD (Recital 26 y guías EDPB). No genera claves de reversión (.key).",
+                    size=12, color=TEXT_MUTED
+                ),
+                ft.Divider(height=12, color="#334155"),
+                dd_k_anonimato,
+                chk_generalizar_cuasi,
+                card_dropzone_anon,
+                ft.Row([btn_procesar_lote_anon])
+            ], spacing=10),
+            bgcolor=SURFACE_CARD, padding=20, border_radius=10, border=ft.border.all(1, "#334155"), height=420
+        )
+
+        card_cola_anonimizador = ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Text("COLA DE ARCHIVOS (ANONIMIZACIÓN)", size=12, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+                    ft.TextButton("Limpiar todo", icon=ft.icons.DELETE_SWEEP, style=ft.ButtonStyle(color=CRIMSON_ERROR), on_click=lambda _: limpiar_todo_cola())
+                ], alignment=ft.MainAxisAlignment.BETWEEN),
+                ft.Divider(height=8, color="#334155"),
+                ft.Column([
+                    vista_cola_archivos_anon,
+                    panel_inspector_preview_anon
+                ], spacing=10)
+            ], spacing=10),
+            bgcolor=SURFACE_CARD, padding=20, border_radius=10, border=ft.border.all(1, "#334155"), height=420
+        )
+
+        grid_anonimizador_superior = ft.ResponsiveRow([
+            ft.Container(content=card_header_anonimizador, col={"sm": 12, "md": 6}),
+            ft.Container(content=card_cola_anonimizador, col={"sm": 12, "md": 6})
+        ], spacing=16)
+
+        nonlocal_card_visibilidad_anon = ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Row([
+                        ft.Icon(ft.icons.FOLDER_SPECIAL, color=EMERALD_GREEN, size=20),
+                        ft.Column([
+                            ft.Text("CARPETA DE SALIDA: ARCHIVOS ANONIMIZADOS RGPD", size=13, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+                            ft.Text(f"Ruta: {CARPETA_SALIDA_ANONIMIZADA}", size=10, color=TEXT_MUTED)
+                        ], spacing=2)
+                    ], spacing=8),
+                    ft.IconButton(
+                        ft.icons.FOLDER_OPEN, 
+                        icon_size=18, 
+                        disabled=ES_DOCKER,
+                        icon_color=TEXT_MUTED if ES_DOCKER else "#FFFFFF",
+                        tooltip="Abrir carpeta de anonimizados", 
+                        on_click=lambda _: abrir_local(CARPETA_SALIDA_ANONIMIZADA)
+                    )
+                ], alignment=ft.MainAxisAlignment.BETWEEN),
+                ft.Divider(height=10, color="#334155"),
+                vista_anonimizados_unificada
+            ], spacing=10),
+            bgcolor=SURFACE_CARD, padding=20, border_radius=10, border=ft.border.all(1, "#334155")
+        )
+        card_visibilidad_anonimizados.content = nonlocal_card_visibilidad_anon.content
+        card_visibilidad_anonimizados.bgcolor = SURFACE_CARD
+        card_visibilidad_anonimizados.padding = 20
+        card_visibilidad_anonimizados.border_radius = 10
+        card_visibilidad_anonimizados.border = ft.border.all(1, "#334155")
+
+        def click_procesar_lote_anon():
+            btn_procesar_lote_anon.disabled = True
+            barra_progreso_anon.visible = True
+            texto_estado_anon.value = "Ejecutando anonimización irreversible RGPD..."
+            texto_estado_anon.color = ACCENT_ORANGE
+            page.update()
+
+            k_val = int(dd_k_anonimato.value or "3")
+            cuasi_val = chk_generalizar_cuasi.value
+
+            try:
+                cant = ejecutar_anonimizacion_real_lotes(
+                    carpeta_salida=CARPETA_SALIDA_ANONIMIZADA,
+                    k_umbral=k_val,
+                    generalizar_cuasi=cuasi_val
+                )
+                texto_estado_anon.value = f"Anonimización completada ({cant} archivos procesados con certificado RGPD)."
+                texto_estado_anon.color = EMERALD_GREEN
+            except Exception as ex:
+                texto_estado_anon.value = f"Error en anonimización: {str(ex)}"
+                texto_estado_anon.color = CRIMSON_ERROR
+
+            barra_progreso_anon.visible = False
+            refrescar_vistas_archivos_anon()
+
+            try:
+                card_visibilidad_anonimizados.scroll_into_view()
+            except Exception:
+                pass
+
+        btn_procesar_lote_anon.on_click = lambda _: click_procesar_lote_anon()
+
+        panel_anonimizador = ft.Column([
+            grid_anonimizador_superior,
+            barra_progreso_anon,
+            texto_estado_anon,
+            card_visibilidad_anonimizados
         ], spacing=16)
 
         # ==========================================
@@ -1019,12 +1533,49 @@ async def main(page: ft.Page):
             txt_info_key.color = TEXT_MUTED
             page.update()
 
-        panel_traduccion = ft.Container(
-            content=ft.Column([
+        barra_progreso_traduccion = ft.ProgressBar(color=ACCENT_ORANGE, bgcolor="#1E293B", visible=False)
+        texto_estado_traduccion = ft.Text("", size=11, color=TEXT_MUTED, weight=ft.FontWeight.W_500)
+
+        card_header_traduccion_carpeta = ft.Container(
+            content=ft.Row([
                 ft.Row([
                     ft.Icon(ft.icons.SWAP_HORIZ, color=ACCENT_ORANGE, size=22),
-                    ft.Text("Traducción inversa (Desanonimización)", size=17, weight=ft.FontWeight.BOLD, color="#FFFFFF")
+                    ft.Column([
+                        ft.Text("Traducción inversa (Desanonimización)", size=17, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+                        ft.Text(f"Carpeta de salida/llaves: {carpeta_salida_configurada}", size=11, color=TEXT_MUTED)
+                    ], spacing=2)
                 ], spacing=8),
+                ft.IconButton(
+                    ft.icons.FOLDER_OPEN,
+                    icon_size=20,
+                    disabled=ES_DOCKER,
+                    icon_color=TEXT_MUTED if ES_DOCKER else "#FFFFFF",
+                    tooltip="Abrir carpeta de salida en explorador",
+                    on_click=lambda _: abrir_local(carpeta_salida_configurada)
+                )
+            ], alignment=ft.MainAxisAlignment.BETWEEN),
+            padding=ft.Padding(bottom=4)
+        )
+
+        def ejecutar_reversion_inteligente_con_preloader(e):
+            barra_progreso_traduccion.visible = True
+            texto_estado_traduccion.value = "Procesando desanonimización con clave .key..."
+            texto_estado_traduccion.color = ACCENT_ORANGE
+            page.update()
+            try:
+                ejecutar_reversion_inteligente(e)
+                texto_estado_traduccion.value = "Desanonimización finalizada con éxito."
+                texto_estado_traduccion.color = EMERALD_GREEN
+            except Exception as ex:
+                texto_estado_traduccion.value = f"Error: {ex}"
+                texto_estado_traduccion.color = CRIMSON_ERROR
+            finally:
+                barra_progreso_traduccion.visible = False
+                page.update()
+
+        panel_traduccion = ft.Container(
+            content=ft.Column([
+                card_header_traduccion_carpeta,
                 ft.Text(
                     "Pegue la respuesta o suba el archivo generado por la IA. Seleccione el documento de origen y Lia Vault aplicará su llave (.key) automáticamente.",
                     size=12, color=TEXT_MUTED
@@ -1042,9 +1593,11 @@ async def main(page: ft.Page):
                 ], spacing=10),
                 tf_texto_anonimizado,
                 ft.Row([
-                    ft.ElevatedButton("Desanonimizar y revertir", icon=ft.icons.LOCK_OPEN, color="#FFFFFF", bgcolor=ACCENT_ORANGE, on_click=ejecutar_reversion_inteligente),
+                    ft.ElevatedButton("Desanonimizar y revertir", icon=ft.icons.LOCK_OPEN, color="#FFFFFF", bgcolor=ACCENT_ORANGE, on_click=ejecutar_reversion_inteligente_con_preloader),
                     ft.ElevatedButton("Limpiar campos", icon=ft.icons.CLEAR_ALL, color="#FFFFFF", bgcolor="#334155", on_click=click_limpiar_traduccion)
                 ], spacing=10),
+                barra_progreso_traduccion,
+                texto_estado_traduccion,
                 ft.Divider(height=16, color="#334155"),
                 ft.Text("Respuesta original restaurada:", size=12, weight=ft.FontWeight.BOLD, color=EMERALD_GREEN),
                 tf_texto_restaurado,
@@ -1153,9 +1706,11 @@ texto_restaurado = desanonimizar_texto("[PERSONA_1]", {"[PERSONA_1]": "Juan Pér
         )
 
         refrescar_vistas_archivos()
+        refrescar_vistas_archivos_anon()
         refrescar_diccionario_view()
         refrescar_dropdown_archivos_traduccion()
 
+        panel_anonimizador.visible = False
         panel_traduccion.visible = False
         panel_diccionario.visible = False
         panel_licencias.visible = False
@@ -1164,6 +1719,7 @@ texto_restaurado = desanonimizar_texto("[PERSONA_1]", {"[PERSONA_1]": "Juan Pér
         columna_workspace = ft.Container(
             content=ft.Column([
                 panel_sanitizador,
+                panel_anonimizador,
                 panel_traduccion,
                 panel_diccionario,
                 panel_licencias,
@@ -1177,14 +1733,19 @@ texto_restaurado = desanonimizar_texto("[PERSONA_1]", {"[PERSONA_1]": "Juan Pér
             columna_workspace
         ], spacing=20)
 
+        contenido_base = ft.Column([
+            header_responsive,
+            ft.Divider(height=1, color="#334155"),
+            layout_principal,
+            ft.Divider(height=1, color="#334155"),
+            footer_container
+        ], spacing=16)
+
         page.add(
-            ft.Column([
-                header_responsive,
-                ft.Divider(height=1, color="#334155"),
-                layout_principal,
-                ft.Divider(height=1, color="#334155"),
-                footer_container
-            ], spacing=16)
+            ft.Stack([
+                contenido_base,
+                overlay_tour_modal
+            ], expand=True)
         )
 
     cargar_interfaz_principal()
@@ -1220,12 +1781,10 @@ def _lanzar_navegador_seguro(url="http://localhost:8502"):
             pass
 
 if __name__ == "__main__":
-    import threading
     liberar_puerto(8502)
     print("\n==================================================")
     print(" [OK] SERVIDOR LIA VAULT EN EJECUCION")
     print(" [+] URL Local: http://localhost:8502")
     print(" [+] URL Red:   http://127.0.0.1:8502")
     print("==================================================\n")
-    threading.Thread(target=_lanzar_navegador_seguro, daemon=True).start()
     ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=8502, host="0.0.0.0")
