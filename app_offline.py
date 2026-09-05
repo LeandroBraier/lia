@@ -232,11 +232,11 @@ def generalizar_cuasi_identificadores(texto):
         r'[AÑO \1]', t, flags=re.IGNORECASE
     )
     
-    # 2. Generalización de Códigos Postales (5 dígitos) -> Enmascarar últimos 3 dígitos
+    # 2. Generalización de Direcciones postales específicas (sin consumir CP o códigos numéricos posteriores)
+    t = re.sub(r'\b(?:Calle|C/|Avenida|Avda\.?|Paseo|Plaza|Carrera|Rúa)\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ0-9ºª]+){0,3}(?=\s*,\s*|\s+CP\b|\s+[0-5]\d{4}\b|\.|\n|$)', '[DIRECCION_GENERALIZADA]', t, flags=re.IGNORECASE)
+
+    # 3. Generalización de Códigos Postales (5 dígitos) -> Enmascarar últimos 3 dígitos (ej: 28013 -> 28***)
     t = re.sub(r'\b([0-5]\d)(\d{3})\b', r'\1***', t)
-    
-    # 3. Generalización de Direcciones postales específicas
-    t = re.sub(r'\b(?:Calle|C/|Avenida|Avda\.?|Paseo|Plaza|Carrera|Rúa)\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ0-9ºª,.-]+){1,5}\b', '[DIRECCION_GENERALIZADA]', t, flags=re.IGNORECASE)
     
     return t
 

@@ -78,6 +78,7 @@ from app_offline import (
     cargar_diccionario_corporativo,
     RUTA_DICCIONARIO
 )
+from i18n import t, get_current_language, set_current_language
 
 # Paleta de colores "Lia Vault Premium Suite"
 DARK_BACKGROUND = "#0F172A" # Slate 900
@@ -154,16 +155,16 @@ async def main(page: ft.Page):
     nombre_archivo_traduccion_original = None
 
     # --- CONTROLES DE SEUDONIMIZACIÓN (REVERSIBLE) ---
-    texto_estado_sanitizador = ft.Text("Listo para escanear y seudonimizar.", size=12, color=TEXT_MUTED)
+    texto_estado_sanitizador = ft.Text(t("sanitizer_status_ready"), size=12, color=TEXT_MUTED)
     barra_progreso_sanitizador = ft.ProgressBar(visible=False, color=ACCENT_ORANGE)
-    btn_procesar_lote = ft.ElevatedButton("Procesar todo el lote (IA local)", icon=ft.icons.SHIELD, color="#FFFFFF", bgcolor=ACCENT_ORANGE, width=320, disabled=True)
+    btn_procesar_lote = ft.ElevatedButton(text=t("sanitizer_btn_process"), icon=ft.icons.SHIELD, color="#FFFFFF", bgcolor=ACCENT_ORANGE, width=320, disabled=True)
 
     vista_cola_archivos = ft.ListView(expand=1, spacing=6, height=140)
     panel_inspector_preview = ft.Container(
         content=ft.Column([
             ft.Icon(ft.icons.REMOVE_RED_EYE_OUTLINED, size=28, color=TEXT_MUTED),
-            ft.Text("Ningún archivo seleccionado", size=11, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-            ft.Text("Seleccione un archivo para previsualizar.", size=10, color=TEXT_MUTED, text_align=ft.TextAlign.CENTER)
+            ft.Text(t("sanitizer_preview_empty_title"), size=11, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+            ft.Text(t("sanitizer_preview_empty_desc"), size=10, color=TEXT_MUTED, text_align=ft.TextAlign.CENTER)
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER, spacing=4),
         bgcolor="#1E293B44", padding=10, border_radius=8, border=ft.border.all(1, "#334155"), height=110, expand=True
     )
@@ -172,9 +173,9 @@ async def main(page: ft.Page):
     card_visibilidad_procesados_y_salida = ft.Container()
 
     # --- CONTROLES DE ANONIMIZACIÓN (IRREVERSIBLE - RGPD) ---
-    texto_estado_anon = ft.Text("Listo para anonimizar de forma irreversible (RGPD).", size=12, color=TEXT_MUTED)
+    texto_estado_anon = ft.Text(t("anon_status_ready"), size=12, color=TEXT_MUTED)
     barra_progreso_anon = ft.ProgressBar(visible=False, color=EMERALD_GREEN)
-    btn_procesar_lote_anon = ft.ElevatedButton("Anonimizar todo el lote (Irreversible - RGPD)", icon=ft.icons.VERIFIED_USER, color="#FFFFFF", bgcolor=EMERALD_GREEN, height=40, expand=True, disabled=True)
+    btn_procesar_lote_anon = ft.ElevatedButton(text=t("anon_btn_process"), icon=ft.icons.VERIFIED_USER, color="#FFFFFF", bgcolor=EMERALD_GREEN, height=40, expand=True, disabled=True)
 
     dd_k_anonimato = ft.Dropdown(
         label="Nivel k-anonimato (Tablas)",
@@ -387,18 +388,18 @@ async def main(page: ft.Page):
         try:
             todos = os.listdir(CARPETA_ENTRADA)
             lista_archivos_entrada = [f for f in todos if not f.startswith(".") and not f.startswith("~$") and os.path.isfile(os.path.join(CARPETA_ENTRADA, f))]
-            texto_estado_sanitizador.value = f"Cola actualizada: {len(lista_archivos_entrada)} archivo(s) pendientes."
+            texto_estado_sanitizador.value = t("sanitizer_queue_status", count=len(lista_archivos_entrada))
             texto_estado_sanitizador.color = NEON_BLUE
             btn_procesar_lote.disabled = len(lista_archivos_entrada) == 0
         except Exception as ex:
-            texto_estado_sanitizador.value = f"Error en entrada: {str(ex)}"
+            texto_estado_sanitizador.value = t("sanitizer_status_error", error=str(ex))
             texto_estado_sanitizador.color = CRIMSON_ERROR
 
         vista_cola_archivos.controls.clear()
         if not lista_archivos_entrada:
             vista_cola_archivos.controls.append(
                 ft.Container(
-                    content=ft.Text("Carpeta /entrada vacía.", size=11, color=TEXT_MUTED, italic=True, text_align=ft.TextAlign.CENTER),
+                    content=ft.Text(t("queue_empty_folder"), size=11, color=TEXT_MUTED, italic=True, text_align=ft.TextAlign.CENTER),
                     padding=10, alignment=ft.alignment.center
                 )
             )
@@ -423,14 +424,14 @@ async def main(page: ft.Page):
                                     ft.Icon(ft.icons.INSERT_DRIVE_FILE_OUTLINED if es_compatible else ft.icons.WARNING_AMBER_ROUNDED, color=NEON_BLUE if es_compatible else CRIMSON_ERROR, size=15),
                                     ft.Text(f, size=11, weight=ft.FontWeight.W_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, width=170),
                                     ft.Container(
-                                        content=ft.Text("No compatible", size=9, color="#FFFFFF", weight=ft.FontWeight.BOLD),
+                                        content=ft.Text(t("badge_incompatible"), size=9, color="#FFFFFF", weight=ft.FontWeight.BOLD),
                                         bgcolor=CRIMSON_ERROR, padding=3, border_radius=3
                                     ) if not es_compatible else ft.Container()
                                 ]),
                                 expand=True,
                                 on_click=lambda _, fn=f: seleccionar_para_preview(fn)
                             ),
-                            ft.ElevatedButton("Anonimizar", icon=ft.icons.SHIELD, color="#FFFFFF", bgcolor=ACCENT_ORANGE if es_compatible else "#475569", height=26, disabled=not es_compatible, on_click=lambda _, fn=f: click_procesar_individual(fn)),
+                            ft.ElevatedButton(t("btn_anonymize_row"), icon=ft.icons.SHIELD, color="#FFFFFF", bgcolor=ACCENT_ORANGE if es_compatible else "#475569", height=26, disabled=not es_compatible, on_click=lambda _, fn=f: click_procesar_individual(fn)),
                             ft.IconButton(ft.icons.DELETE_OUTLINED, icon_size=14, icon_color=CRIMSON_ERROR, on_click=del_file)
                         ], alignment=ft.MainAxisAlignment.BETWEEN),
                         bgcolor="#1E293B66", padding=4, border_radius=4
@@ -447,7 +448,7 @@ async def main(page: ft.Page):
 
         if not archivos_sal:
             vista_procesados_unificada.controls.append(
-                ft.Container(content=ft.Text("No hay archivos procesados en la carpeta de salida aún.", size=11, color=TEXT_MUTED, italic=True), padding=10)
+                ft.Container(content=ft.Text(t("sanitizer_no_processed"), size=11, color=TEXT_MUTED, italic=True), padding=10)
             )
         else:
             for f in archivos_sal:
@@ -470,13 +471,13 @@ async def main(page: ft.Page):
                                 ft.Icon(ft.icons.CHECK_CIRCLE_OUTLINED, color=EMERALD_GREEN, size=16),
                                 ft.Text(f, size=12, weight=ft.FontWeight.W_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, width=200),
                                 ft.Container(
-                                    content=ft.Text("NUEVO", size=9, color="#FFFFFF", weight=ft.FontWeight.BOLD),
+                                    content=ft.Text(t("badge_new"), size=9, color="#FFFFFF", weight=ft.FontWeight.BOLD),
                                     bgcolor=EMERALD_GREEN, padding=3, border_radius=3
                                 ) if es_reciente else ft.Container()
                             ], expand=True),
                             ft.Row([
-                                ft.ElevatedButton("Abrir documento", icon=ft.icons.OPEN_IN_NEW, color="#FFFFFF", bgcolor=ACCENT_ORANGE, height=30, on_click=lambda _, fn=f, r=ruta_doc: abrir_documento_o_dialogo(fn, r)),
-                                ft.ElevatedButton("Llave .key", icon=ft.icons.VPN_KEY, color="#FFFFFF", bgcolor="#334155", height=30, disabled=not ruta_key, on_click=lambda _, fn=f, r=ruta_key: mostrar_dialogo_key(fn, r))
+                                ft.ElevatedButton(t("btn_open_doc"), icon=ft.icons.OPEN_IN_NEW, color="#FFFFFF", bgcolor=ACCENT_ORANGE, height=30, on_click=lambda _, fn=f, r=ruta_doc: abrir_documento_o_dialogo(fn, r)),
+                                ft.ElevatedButton(t("btn_key_doc"), icon=ft.icons.VPN_KEY, color="#FFFFFF", bgcolor="#334155", height=30, disabled=not ruta_key, on_click=lambda _, fn=f, r=ruta_key: mostrar_dialogo_key(fn, r))
                             ], spacing=6)
                         ], alignment=ft.MainAxisAlignment.BETWEEN),
                         bgcolor="#05966933" if es_reciente else "#1E293B66",
@@ -551,8 +552,8 @@ async def main(page: ft.Page):
                 bgcolor="#0F172A", padding=6, border_radius=4, height=45
             ),
             ft.Row([
-                ft.ElevatedButton("Abrir", icon=ft.icons.OPEN_IN_NEW, color="#FFFFFF", bgcolor="#334155", height=28, on_click=lambda _, fn=nombre_archivo, r=ruta_f: abrir_documento_o_dialogo(fn, r)),
-                ft.ElevatedButton("Anonimizar ahora", icon=ft.icons.VERIFIED_USER, color="#FFFFFF", bgcolor=EMERALD_GREEN if es_comp else "#475569", height=28, disabled=not es_comp, on_click=lambda _: click_procesar_individual_anon(nombre_archivo))
+                ft.ElevatedButton(t("btn_open"), icon=ft.icons.OPEN_IN_NEW, color="#FFFFFF", bgcolor="#334155", height=28, on_click=lambda _, fn=nombre_archivo, r=ruta_f: abrir_documento_o_dialogo(fn, r)),
+                ft.ElevatedButton(t("btn_anon_now"), icon=ft.icons.VERIFIED_USER, color="#FFFFFF", bgcolor=EMERALD_GREEN if es_comp else "#475569", height=28, disabled=not es_comp, on_click=lambda _: click_procesar_individual_anon(nombre_archivo))
             ], spacing=6)
         ], spacing=4)
         page.update()
@@ -562,11 +563,11 @@ async def main(page: ft.Page):
         try:
             todos = os.listdir(CARPETA_ENTRADA)
             archivos_entrada = [f for f in todos if not f.startswith(".") and not f.startswith("~$") and os.path.isfile(os.path.join(CARPETA_ENTRADA, f))]
-            texto_estado_anon.value = f"Cola lista: {len(archivos_entrada)} archivo(s) pendientes para anonimizar."
+            texto_estado_anon.value = t("anon_queue_status", count=len(archivos_entrada))
             texto_estado_anon.color = EMERALD_GREEN
             btn_procesar_lote_anon.disabled = len(archivos_entrada) == 0
         except Exception as ex:
-            texto_estado_anon.value = f"Error en entrada: {str(ex)}"
+            texto_estado_anon.value = t("anon_status_error", error=str(ex))
             texto_estado_anon.color = CRIMSON_ERROR
             archivos_entrada = []
 
@@ -574,7 +575,7 @@ async def main(page: ft.Page):
         if not archivos_entrada:
             vista_cola_archivos_anon.controls.append(
                 ft.Container(
-                    content=ft.Text("Carpeta /entrada vacía.", size=11, color=TEXT_MUTED, italic=True, text_align=ft.TextAlign.CENTER),
+                    content=ft.Text(t("queue_empty_folder"), size=11, color=TEXT_MUTED, italic=True, text_align=ft.TextAlign.CENTER),
                     padding=10, alignment=ft.alignment.center
                 )
             )
@@ -599,14 +600,14 @@ async def main(page: ft.Page):
                                     ft.Icon(ft.icons.INSERT_DRIVE_FILE_OUTLINED if es_compatible else ft.icons.WARNING_AMBER_ROUNDED, color=EMERALD_GREEN if es_compatible else CRIMSON_ERROR, size=15),
                                     ft.Text(f, size=11, weight=ft.FontWeight.W_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, width=170),
                                     ft.Container(
-                                        content=ft.Text("No compatible", size=9, color="#FFFFFF", weight=ft.FontWeight.BOLD),
+                                        content=ft.Text(t("badge_incompatible"), size=9, color="#FFFFFF", weight=ft.FontWeight.BOLD),
                                         bgcolor=CRIMSON_ERROR, padding=3, border_radius=3
                                     ) if not es_compatible else ft.Container()
                                 ]),
                                 expand=True,
                                 on_click=lambda _, fn=f: seleccionar_para_preview_anon(fn)
                             ),
-                            ft.ElevatedButton("Anonimizar", icon=ft.icons.VERIFIED_USER, color="#FFFFFF", bgcolor=EMERALD_GREEN if es_compatible else "#475569", height=26, disabled=not es_compatible, on_click=lambda _, fn=f: click_procesar_individual_anon(fn)),
+                            ft.ElevatedButton(t("btn_anonymize_row"), icon=ft.icons.VERIFIED_USER, color="#FFFFFF", bgcolor=EMERALD_GREEN if es_compatible else "#475569", height=26, disabled=not es_compatible, on_click=lambda _, fn=f: click_procesar_individual_anon(fn)),
                             ft.IconButton(ft.icons.DELETE_OUTLINED, icon_size=14, icon_color=CRIMSON_ERROR, on_click=del_file_anon)
                         ], alignment=ft.MainAxisAlignment.BETWEEN),
                         bgcolor="#1E293B66", padding=4, border_radius=4
@@ -623,7 +624,7 @@ async def main(page: ft.Page):
 
         if not archivos_anon:
             vista_anonimizados_unificada.controls.append(
-                ft.Container(content=ft.Text("No hay archivos en la carpeta de anonimización aún.", size=11, color=TEXT_MUTED, italic=True), padding=10)
+                ft.Container(content=ft.Text(t("anon_no_processed"), size=11, color=TEXT_MUTED, italic=True), padding=10)
             )
         else:
             for f in archivos_anon:
@@ -641,11 +642,11 @@ async def main(page: ft.Page):
                                     ft.Icon(ft.icons.VERIFIED_USER, color=EMERALD_GREEN, size=16),
                                     ft.Text(f, size=11, weight=ft.FontWeight.BOLD, color=EMERALD_GREEN, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, width=220),
                                     ft.Container(
-                                        content=ft.Text("CERTIFICADO RGPD", size=8, color="#FFFFFF", weight=ft.FontWeight.BOLD),
+                                        content=ft.Text(t("btn_rgpd_cert").upper(), size=8, color="#FFFFFF", weight=ft.FontWeight.BOLD),
                                         bgcolor="#059669", padding=3, border_radius=3
                                     )
                                 ], expand=True),
-                                ft.ElevatedButton("Ver Certificado", icon=ft.icons.ARTICLE, color="#FFFFFF", bgcolor="#059669", height=28, on_click=lambda _, fn=f, r=ruta_doc: mostrar_dialogo_ver_documento(fn, r))
+                                ft.ElevatedButton(t("btn_rgpd_cert"), icon=ft.icons.ARTICLE, color="#FFFFFF", bgcolor="#059669", height=28, on_click=lambda _, fn=f, r=ruta_doc: mostrar_dialogo_ver_documento(fn, r))
                             ], alignment=ft.MainAxisAlignment.BETWEEN),
                             bgcolor="#05966922",
                             border=ft.border.all(1, "#05966944"),
@@ -660,14 +661,14 @@ async def main(page: ft.Page):
                                     ft.Icon(ft.icons.SHIELD, color=EMERALD_GREEN, size=16),
                                     ft.Text(f, size=12, weight=ft.FontWeight.W_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, width=200),
                                     ft.Container(
-                                        content=ft.Text("ANÓNIMO RGPD", size=8, color="#FFFFFF", weight=ft.FontWeight.BOLD),
+                                        content=ft.Text(t("badge_new"), size=8, color="#FFFFFF", weight=ft.FontWeight.BOLD),
                                         bgcolor="#059669", padding=3, border_radius=3
                                     )
                                 ], expand=True),
                                 ft.Row([
-                                    ft.ElevatedButton("Abrir documento", icon=ft.icons.OPEN_IN_NEW, color="#FFFFFF", bgcolor=EMERALD_GREEN, height=30, on_click=lambda _, fn=f, r=ruta_doc: abrir_documento_o_dialogo(fn, r)),
+                                    ft.ElevatedButton(t("btn_open_doc"), icon=ft.icons.OPEN_IN_NEW, color="#FFFFFF", bgcolor=EMERALD_GREEN, height=30, on_click=lambda _, fn=f, r=ruta_doc: abrir_documento_o_dialogo(fn, r)),
                                     ft.ElevatedButton(
-                                        "Certificado RGPD",
+                                        t("btn_rgpd_cert"),
                                         icon=ft.icons.ARTICLE,
                                         color="#FFFFFF",
                                         bgcolor="#334155",
@@ -891,46 +892,96 @@ async def main(page: ft.Page):
 
     # --- INTERFAZ PRINCIPAL SUITE LIA VAULT ---
     def cargar_interfaz_principal():
+        lang_curr = get_current_language()
         logo_img = ft.Image(src=f"data:image/svg+xml;base64,{LOGO_BASE64}", width=44, height=44, fit="contain")
         
+        # Sincronizar textos de controles dinámicos con el idioma activo
+        btn_procesar_lote.text = t("sanitizer_btn_process")
+        btn_procesar_lote_anon.text = t("anon_btn_process")
+        texto_estado_sanitizador.value = t("sanitizer_status_ready")
+        texto_estado_anon.value = t("anon_status_ready")
+        dd_k_anonimato.label = t("anon_k_label")
+        dd_k_anonimato.options = [
+            ft.dropdown.Option("3", t("anon_k_3")),
+            ft.dropdown.Option("5", t("anon_k_5")),
+            ft.dropdown.Option("10", t("anon_k_10"))
+        ]
+        chk_generalizar_cuasi.label = t("anon_quasi_label")
+        dd_archivo_origen_key.label = t("reversion_dd_label")
+        dd_archivo_origen_key.hint_text = t("reversion_select_hint")
+        tf_texto_anonimizado.hint_text = t("reversion_hint_input")
+        txt_info_doc_traduccion.value = t("reversion_txt_no_doc")
+        txt_info_key.value = t("reversion_txt_key_auto")
+        tf_texto_restaurado.hint_text = t("reversion_output_hint")
+        tf_nueva_palabra_dic.hint_text = t("dict_tf_hint")
+        
+        panel_inspector_preview.content = ft.Column([
+            ft.Icon(ft.icons.REMOVE_RED_EYE_OUTLINED, size=28, color=TEXT_MUTED),
+            ft.Text(t("sanitizer_preview_empty_title"), size=11, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+            ft.Text(t("sanitizer_preview_empty_desc"), size=10, color=TEXT_MUTED, text_align=ft.TextAlign.CENTER)
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER, spacing=4)
+
+        panel_inspector_preview_anon.content = ft.Column([
+            ft.Icon(ft.icons.REMOVE_RED_EYE_OUTLINED, size=28, color=TEXT_MUTED),
+            ft.Text(t("sanitizer_preview_empty_title"), size=11, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+            ft.Text(t("sanitizer_preview_empty_desc"), size=10, color=TEXT_MUTED, text_align=ft.TextAlign.CENTER)
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER, spacing=4)
+        
+        def toggle_language(e):
+            nuevo_lang = "en" if get_current_language() == "es" else "es"
+            set_current_language(nuevo_lang)
+            page.clean()
+            cargar_interfaz_principal()
+            page.update()
+
         header_brand = ft.Column([
             ft.Row([
                 logo_img,
                 ft.Text("LIA VAULT", size=26, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
                 ft.Container(content=ft.Text("ON-PREMISE", size=11, weight=ft.FontWeight.BOLD, color=ACCENT_ORANGE), bgcolor="#3B2506", padding=ft.Padding(left=8, right=8, top=3, bottom=3), border_radius=4)
             ], spacing=10),
-            ft.Text("Suite de Privacidad y Anonimización 100% On-Premise", size=13, weight=ft.FontWeight.W_500, color=TEXT_MUTED)
+            ft.Text(t("header_subtitle"), size=13, weight=ft.FontWeight.W_500, color=TEXT_MUTED)
         ], spacing=4)
 
         status_pills = ft.Row([
             ft.Container(
                 content=ft.Row([
+                    ft.Icon(ft.icons.LANGUAGE, color=ACCENT_ORANGE, size=16),
+                    ft.Text("ES" if lang_curr == "es" else "EN", size=12, color="#FFFFFF", weight=ft.FontWeight.BOLD),
+                ], spacing=6),
+                bgcolor=SURFACE_CARD, padding=ft.Padding(left=12, right=12, top=8, bottom=8), border_radius=16, border=ft.border.all(1, ACCENT_ORANGE),
+                tooltip=t("lang_switch_tooltip"),
+                on_click=toggle_language,
+                ink=True
+            ),
+            ft.Container(
+                content=ft.Row([
                     ft.Icon(ft.icons.CIRCLE, color=EMERALD_GREEN, size=11),
-                    ft.Text("Servidor local: 127.0.0.1:8502 (LAN)", size=12, color=NEON_BLUE, weight=ft.FontWeight.W_600)
+                    ft.Text(t("server_lan"), size=12, color=NEON_BLUE, weight=ft.FontWeight.W_600)
                 ], spacing=8),
                 bgcolor=SURFACE_CARD, padding=ft.Padding(left=12, right=12, top=8, bottom=8), border_radius=16, border=ft.border.all(1, "#334155")
             ),
             ft.Container(
                 content=ft.Row([
                     ft.Icon(ft.icons.VERIFIED_USER, color=EMERALD_GREEN, size=16),
-                    ft.Text(f"Licencia: Trial activo ({dias_restantes}d)", size=12, color=EMERALD_GREEN, weight=ft.FontWeight.W_600)
+                    ft.Text(t("license_active_badge", days=dias_restantes) if licencia_valida else t("license_invalid_badge"), size=12, color=EMERALD_GREEN, weight=ft.FontWeight.W_600)
                 ], spacing=8),
                 bgcolor=SURFACE_CARD, padding=ft.Padding(left=12, right=12, top=8, bottom=8), border_radius=16, border=ft.border.all(1, "#334155")
             )
         ], spacing=14, alignment=ft.MainAxisAlignment.END, wrap=False)
 
         header_responsive = ft.ResponsiveRow([
-            ft.Container(content=header_brand, col={"sm": 12, "md": 7}),
-            ft.Container(content=status_pills, alignment=ft.alignment.center_right if platform.system() != "Mobile" else ft.alignment.center_left, col={"sm": 12, "md": 5})
+            ft.Container(content=header_brand, col={"sm": 12, "md": 6}),
+            ft.Container(content=status_pills, alignment=ft.alignment.center_right if platform.system() != "Mobile" else ft.alignment.center_left, col={"sm": 12, "md": 6})
         ], alignment=ft.MainAxisAlignment.BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
         # Menú Lateral Sidebar
-        btn_nav_sanitizador = ft.ElevatedButton("Seudonimización (reversible)", icon=ft.icons.SHIELD_OUTLINED, color="#FFFFFF", bgcolor=ACCENT_ORANGE, height=42)
-        btn_nav_anonimizador = ft.ElevatedButton("Anonimización (irreversible)", icon=ft.icons.VERIFIED_USER, color="#FFFFFF", bgcolor=SURFACE_CARD, height=42)
-        btn_nav_traduccion = ft.ElevatedButton("Traducción inversa", icon=ft.icons.SWAP_HORIZ, color="#FFFFFF", bgcolor=SURFACE_CARD, height=42)
-        btn_nav_diccionario = ft.ElevatedButton("Diccionario empresa", icon=ft.icons.MENU_BOOK_OUTLINED, color="#FFFFFF", bgcolor=SURFACE_CARD, height=42)
-        btn_nav_licencias = ft.ElevatedButton("Licencias y simulación", icon=ft.icons.VPN_KEY_OUTLINED, color="#FFFFFF", bgcolor=SURFACE_CARD, height=42)
-        btn_nav_codigo = ft.ElevatedButton("Código on-premise", icon=ft.icons.CODE, color="#FFFFFF", bgcolor=SURFACE_CARD, height=42)
+        btn_nav_sanitizador = ft.ElevatedButton(t("tab_sanitizer"), icon=ft.icons.SHIELD_OUTLINED, color="#FFFFFF", bgcolor=ACCENT_ORANGE if menu_activo == "sanitizador" else SURFACE_CARD, height=42)
+        btn_nav_anonimizador = ft.ElevatedButton(t("tab_anonymizer"), icon=ft.icons.VERIFIED_USER, color="#FFFFFF", bgcolor=ACCENT_ORANGE if menu_activo == "anonimizador" else SURFACE_CARD, height=42)
+        btn_nav_traduccion = ft.ElevatedButton(t("tab_reversion"), icon=ft.icons.SWAP_HORIZ, color="#FFFFFF", bgcolor=ACCENT_ORANGE if menu_activo == "traduccion" else SURFACE_CARD, height=42)
+        btn_nav_diccionario = ft.ElevatedButton(t("tab_dictionary"), icon=ft.icons.MENU_BOOK_OUTLINED, color="#FFFFFF", bgcolor=ACCENT_ORANGE if menu_activo == "diccionario" else SURFACE_CARD, height=42)
+        btn_nav_licencias = ft.ElevatedButton(t("tab_license"), icon=ft.icons.VPN_KEY_OUTLINED, color="#FFFFFF", bgcolor=ACCENT_ORANGE if menu_activo == "licencias" else SURFACE_CARD, height=42)
+        btn_nav_codigo = ft.ElevatedButton(t("tab_code"), icon=ft.icons.CODE, color="#FFFFFF", bgcolor=ACCENT_ORANGE if menu_activo == "codigo" else SURFACE_CARD, height=42)
 
         def cambiar_seccion(nombre):
             nonlocal menu_activo
@@ -967,50 +1018,50 @@ async def main(page: ft.Page):
         pasos_tour = [
             {
                 "seccion": "sanitizador",
-                "titulo": "1. Seudonimización Reversible (Para interactuar con LLMs)",
+                "titulo": t("tour_1_title"),
                 "icono": ft.icons.SHIELD_OUTLINED,
                 "color": ACCENT_ORANGE,
-                "descripcion": "Arrastra documentos (PDF, DOCX, XLSX, TXT, OCR) para detectar datos sensibles. Reemplaza PII por etiquetas como [PERSONA_1] y genera un archivo .key para revertir la respuesta de ChatGPT o Claude conservando la privacidad total."
+                "descripcion": t("tour_1_desc")
             },
             {
                 "seccion": "anonimizador",
-                "titulo": "2. Anonimización Irreversible (Conforme a RGPD)",
+                "titulo": t("tour_2_title"),
                 "icono": ft.icons.VERIFIED_USER,
                 "color": EMERALD_GREEN,
-                "descripcion": "Destruye y generaliza datos personales de forma 100% irreversible según el Recital 26 y guías EDPB. Permite configurar k-anonimato (k=3, 5, 10), generalización de fechas/CPs y emite Certificados de Auditoría RGPD."
+                "descripcion": t("tour_2_desc")
             },
             {
                 "seccion": "traduccion",
-                "titulo": "3. Traducción Inversa (De-seudonimización inteligente)",
+                "titulo": t("tour_3_title"),
                 "icono": ft.icons.SWAP_HORIZ,
                 "color": ACCENT_ORANGE,
-                "descripcion": "Pega aquí la respuesta generada por la IA o sube el documento protegido. Lia Vault aplicará la llave (.key) correspondiente para devolverle los nombres y datos reales originales en tu equipo."
+                "descripcion": t("tour_3_desc")
             },
             {
                 "seccion": "diccionario",
-                "titulo": "4. Diccionario Confidencial Corporativo",
+                "titulo": t("tour_4_title"),
                 "icono": ft.icons.MENU_BOOK_OUTLINED,
                 "color": NEON_BLUE,
-                "descripcion": "Define nombres de proyectos secretos, códigos de clientes o patentes internas. Cualquier término que añadas aquí será censurado automáticamente en todos los documentos e imágenes."
+                "descripcion": t("tour_4_desc")
             },
             {
                 "seccion": "codigo",
-                "titulo": "5. Privacidad & Despliegue On-Premise",
+                "titulo": t("tour_5_title"),
                 "icono": ft.icons.CODE,
                 "color": EMERALD_GREEN,
-                "descripcion": "Todos los modelos de IA y OCR corren de forma 100% local en tu procesador/GPU. Cero fugas hacia servidores externos o la nube. ¡Disfruta de Lia Vault!"
+                "descripcion": t("tour_5_desc")
             }
         ]
 
         paso_tour_actual = 0
-        txt_tour_progreso = ft.Text("Paso 1 de 5", size=11, weight=ft.FontWeight.BOLD, color=ACCENT_ORANGE)
+        txt_tour_progreso = ft.Text(t("tour_step_prefix", step=1, total=len(pasos_tour)), size=11, weight=ft.FontWeight.BOLD, color=ACCENT_ORANGE)
         txt_tour_titulo = ft.Text("", size=15, weight=ft.FontWeight.BOLD, color="#FFFFFF")
         txt_tour_desc = ft.Text("", size=12, color="#E2E8F0")
         icon_tour_paso = ft.Icon(ft.icons.HELP_OUTLINE, size=24, color=ACCENT_ORANGE)
 
-        btn_tour_anterior = ft.OutlinedButton("Anterior", height=32, disabled=True)
-        btn_tour_siguiente = ft.ElevatedButton("Siguiente", height=32, bgcolor=ACCENT_ORANGE, color="#FFFFFF")
-        btn_tour_cerrar = ft.TextButton("Omitir tour", style=ft.ButtonStyle(color=TEXT_MUTED))
+        btn_tour_anterior = ft.OutlinedButton(t("tour_btn_prev"), height=32, disabled=True)
+        btn_tour_siguiente = ft.ElevatedButton(t("tour_btn_next"), height=32, bgcolor=ACCENT_ORANGE, color="#FFFFFF")
+        btn_tour_cerrar = ft.TextButton(t("tour_btn_skip"), style=ft.ButtonStyle(color=TEXT_MUTED))
 
         def cerrar_tour(_=None):
             overlay_tour_modal.visible = False
@@ -1023,7 +1074,7 @@ async def main(page: ft.Page):
 
             cambiar_seccion(paso["seccion"])
 
-            txt_tour_progreso.value = f"Paso {paso_tour_actual + 1} de {len(pasos_tour)}"
+            txt_tour_progreso.value = t("tour_step_prefix", step=paso_tour_actual + 1, total=len(pasos_tour))
             txt_tour_titulo.value = paso["titulo"]
             txt_tour_desc.value = paso["descripcion"]
             icon_tour_paso.name = paso["icono"]
@@ -1031,10 +1082,10 @@ async def main(page: ft.Page):
 
             btn_tour_anterior.disabled = (paso_tour_actual == 0)
             if paso_tour_actual == len(pasos_tour) - 1:
-                btn_tour_siguiente.text = "¡Comenzar a usar Lia!"
+                btn_tour_siguiente.text = t("tour_btn_finish")
                 btn_tour_siguiente.bgcolor = EMERALD_GREEN
             else:
-                btn_tour_siguiente.text = "Siguiente"
+                btn_tour_siguiente.text = t("tour_btn_next")
                 btn_tour_siguiente.bgcolor = ACCENT_ORANGE
 
             overlay_tour_modal.visible = True
@@ -1100,43 +1151,35 @@ async def main(page: ft.Page):
             content=ft.Column([
                 ft.Row([
                     ft.Icon(ft.icons.SHIELD_OUTLINED, color=EMERALD_GREEN, size=18),
-                    ft.Text("PRIVACIDAD 100% LOCAL", size=12, weight=ft.FontWeight.BOLD, color=EMERALD_GREEN)
+                    ft.Text(t("sidebar_privacy_badge"), size=12, weight=ft.FontWeight.BOLD, color=EMERALD_GREEN)
                 ], spacing=6),
                 ft.Text(
-                    "Tus documentos se procesan exclusivamente en este equipo. Ningún dato sensible sale a internet ni se almacena en la nube.",
+                    t("sidebar_privacy_desc"),
                     size=11, color=TEXT_MUTED
                 ),
-                ft.Row([
-                    ft.Icon(ft.icons.CHECK, color=EMERALD_GREEN, size=14),
-                    ft.Text("Cero conexiones externas.", size=11, color=TEXT_MUTED)
-                ], spacing=4),
-                ft.Row([
-                    ft.Icon(ft.icons.CHECK, color=EMERALD_GREEN, size=14),
-                    ft.Text("Procesamiento local seguro.", size=11, color=TEXT_MUTED)
-                ], spacing=4)
             ], spacing=8),
             bgcolor=SURFACE_CARD, padding=16, border_radius=10, border=ft.border.all(1, "#334155")
         )
 
         btn_tour_sidebar = ft.ElevatedButton(
-            "Tour guiado interactivo",
+            t("sidebar_tour_btn"),
             icon=ft.icons.EXPLORE,
             color="#FFFFFF",
             bgcolor="#334155",
             height=40,
             on_click=lambda _: iniciar_tour_guiado(paso=0),
-            tooltip="Iniciar recorrido interactivo por las funciones de Lia Vault"
+            tooltip=t("sidebar_tour_btn")
         )
 
         columna_sidebar = ft.Container(
             content=ft.Column([
-                ft.Text("FUNCIONES LOCALES", size=11, weight=ft.FontWeight.BOLD, color=TEXT_MUTED),
+                ft.Text(t("sidebar_local_features"), size=11, weight=ft.FontWeight.BOLD, color=TEXT_MUTED),
                 btn_nav_sanitizador,
                 btn_nav_anonimizador,
                 btn_nav_traduccion,
                 btn_nav_diccionario,
                 ft.Divider(height=16, color="#334155"),
-                ft.Text("DESPLIEGUE & ADMIN", size=11, weight=ft.FontWeight.BOLD, color=TEXT_MUTED),
+                ft.Text(t("sidebar_deploy_admin"), size=11, weight=ft.FontWeight.BOLD, color=TEXT_MUTED),
                 btn_nav_licencias,
                 btn_nav_codigo,
                 ft.Divider(height=16, color="#334155"),
@@ -1152,8 +1195,8 @@ async def main(page: ft.Page):
         card_dropzone = ft.Container(
             content=ft.Column([
                 ft.Icon(ft.icons.UNARCHIVE_OUTLINED, size=32, color=TEXT_MUTED),
-                ft.Text("Seleccionar archivos", size=13, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                ft.Text("TXT, CSV, DOCX, XLSX, PDF, PNG/JPG", size=10, color=TEXT_MUTED)
+                ft.Text(t("btn_add_files"), size=13, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+                ft.Text(t("dropzone_formats"), size=10, color=TEXT_MUTED)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=4),
             bgcolor="#1E293B88",
             padding=16,
@@ -1168,10 +1211,10 @@ async def main(page: ft.Page):
             content=ft.Column([
                 ft.Row([
                     ft.Icon(ft.icons.LAYERS_OUTLINED, color=ACCENT_ORANGE, size=20),
-                    ft.Text("Sanitizador de archivos", size=16, weight=ft.FontWeight.BOLD, color="#FFFFFF")
+                    ft.Text(t("sanitizer_card_title"), size=16, weight=ft.FontWeight.BOLD, color="#FFFFFF")
                 ], spacing=8),
                 ft.Text(
-                    "Arrastre sus documentos para buscar datos sensibles y generar un clon protegido listo para ChatGPT.",
+                    t("sanitizer_card_desc"),
                     size=11, color=TEXT_MUTED
                 ),
                 ft.Divider(height=8, color="#334155"),
@@ -1185,8 +1228,8 @@ async def main(page: ft.Page):
         card_cola_archivos = ft.Container(
             content=ft.Column([
                 ft.Row([
-                    ft.Text(f"COLA DE ARCHIVOS LISTOS", size=12, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                    ft.TextButton("Limpiar todo", icon=ft.icons.DELETE_SWEEP, style=ft.ButtonStyle(color=CRIMSON_ERROR), on_click=lambda _: limpiar_todo_cola())
+                    ft.Text(t("sanitizer_queue_title"), size=12, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+                    ft.TextButton(t("btn_clear_all"), icon=ft.icons.DELETE_SWEEP, style=ft.ButtonStyle(color=CRIMSON_ERROR), on_click=lambda _: limpiar_todo_cola())
                 ], alignment=ft.MainAxisAlignment.BETWEEN),
                 ft.Column([
                     vista_cola_archivos,
@@ -1209,8 +1252,8 @@ async def main(page: ft.Page):
                     ft.Row([
                         ft.Icon(ft.icons.FOLDER_SPECIAL, color=EMERALD_GREEN, size=20),
                         ft.Column([
-                            ft.Text("Archivos seguros ya procesados", size=15, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                            ft.Text("📍 Ubicación física de descarga en tu equipo: ./salida (dentro de la carpeta del proyecto)", size=11, color=NEON_BLUE, weight=ft.FontWeight.W_500)
+                            ft.Text(t("sanitizer_output_title"), size=15, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+                            ft.Text(t("sanitizer_output_path_hint"), size=11, color=NEON_BLUE, weight=ft.FontWeight.W_500)
                         ], spacing=2)
                     ], spacing=8),
                     ft.IconButton(
@@ -1218,7 +1261,7 @@ async def main(page: ft.Page):
                         icon_size=18, 
                         disabled=ES_DOCKER,
                         icon_color=TEXT_MUTED if ES_DOCKER else "#FFFFFF",
-                        tooltip="Acceso directo a carpeta desactivado en Docker (archivos almacenados en ./salida)" if ES_DOCKER else "Abrir carpeta de salida en explorador", 
+                        tooltip=t("sanitizer_tooltip_folder_docker") if ES_DOCKER else t("sanitizer_tooltip_folder"), 
                         on_click=lambda _: abrir_local(carpeta_salida_configurada)
                     )
                 ], alignment=ft.MainAxisAlignment.BETWEEN),
@@ -1236,16 +1279,16 @@ async def main(page: ft.Page):
         def click_procesar_lote():
             btn_procesar_lote.disabled = True
             barra_progreso_sanitizador.visible = True
-            texto_estado_sanitizador.value = "Procesando lote completo con IA y OCR offline..."
+            texto_estado_sanitizador.value = t("sanitizer_status_processing")
             texto_estado_sanitizador.color = ACCENT_ORANGE
             page.update()
 
             try:
                 cant = ejecutar_procesamiento_lotes(carpeta_salida=carpeta_salida_configurada)
-                texto_estado_sanitizador.value = f"Lote completado exitosamente ({cant} archivos procesados con su .key)."
+                texto_estado_sanitizador.value = t("sanitizer_status_completed", count=cant)
                 texto_estado_sanitizador.color = EMERALD_GREEN
             except Exception as ex:
-                texto_estado_sanitizador.value = f"Error en ejecución: {str(ex)}"
+                texto_estado_sanitizador.value = t("sanitizer_status_error", error=str(ex))
                 texto_estado_sanitizador.color = CRIMSON_ERROR
 
             barra_progreso_sanitizador.visible = False
@@ -1278,8 +1321,8 @@ async def main(page: ft.Page):
         card_dropzone_anon = ft.Container(
             content=ft.Column([
                 ft.Icon(ft.icons.UNARCHIVE_OUTLINED, size=34, color=TEXT_MUTED),
-                ft.Text("Seleccionar archivos para anonimizar", size=13, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                ft.Text("Formatos: TXT, CSV, DOCX, XLSX, PDF, PNG/JPG", size=11, color=TEXT_MUTED)
+                ft.Text(t("btn_add_files"), size=13, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+                ft.Text(t("dropzone_formats"), size=11, color=TEXT_MUTED)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER, spacing=6),
             bgcolor="#1E293B88",
             padding=16,
@@ -1293,10 +1336,10 @@ async def main(page: ft.Page):
             content=ft.Column([
                 ft.Row([
                     ft.Icon(ft.icons.VERIFIED_USER, color=EMERALD_GREEN, size=22),
-                    ft.Text("Anonimización RGPD (Irreversible)", size=16, weight=ft.FontWeight.BOLD, color="#FFFFFF")
+                    ft.Text(t("anon_card_title"), size=16, weight=ft.FontWeight.BOLD, color="#FFFFFF")
                 ], spacing=8),
                 ft.Text(
-                    "Anonimización destructiva conforme a RGPD (Recital 26 y guías EDPB). No genera claves de reversión (.key).",
+                    t("anon_card_desc"),
                     size=12, color=TEXT_MUTED
                 ),
                 ft.Divider(height=12, color="#334155"),
@@ -1311,8 +1354,8 @@ async def main(page: ft.Page):
         card_cola_anonimizador = ft.Container(
             content=ft.Column([
                 ft.Row([
-                    ft.Text("COLA DE ARCHIVOS (ANONIMIZACIÓN)", size=12, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                    ft.TextButton("Limpiar todo", icon=ft.icons.DELETE_SWEEP, style=ft.ButtonStyle(color=CRIMSON_ERROR), on_click=lambda _: limpiar_todo_cola())
+                    ft.Text(t("anon_queue_title"), size=12, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+                    ft.TextButton(t("btn_clear_all"), icon=ft.icons.DELETE_SWEEP, style=ft.ButtonStyle(color=CRIMSON_ERROR), on_click=lambda _: limpiar_todo_cola())
                 ], alignment=ft.MainAxisAlignment.BETWEEN),
                 ft.Divider(height=8, color="#334155"),
                 ft.Column([
@@ -1334,8 +1377,8 @@ async def main(page: ft.Page):
                     ft.Row([
                         ft.Icon(ft.icons.FOLDER_SPECIAL, color=EMERALD_GREEN, size=20),
                         ft.Column([
-                            ft.Text("CARPETA DE SALIDA: ARCHIVOS ANONIMIZADOS RGPD", size=13, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                            ft.Text(f"Ruta: {CARPETA_SALIDA_ANONIMIZADA}", size=10, color=TEXT_MUTED)
+                            ft.Text(t("anon_output_title"), size=13, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+                            ft.Text(t("anon_output_path", path=CARPETA_SALIDA_ANONIMIZADA), size=10, color=TEXT_MUTED)
                         ], spacing=2)
                     ], spacing=8),
                     ft.IconButton(
@@ -1343,7 +1386,7 @@ async def main(page: ft.Page):
                         icon_size=18, 
                         disabled=ES_DOCKER,
                         icon_color=TEXT_MUTED if ES_DOCKER else "#FFFFFF",
-                        tooltip="Abrir carpeta de anonimizados", 
+                        tooltip=t("anon_tooltip_folder"), 
                         on_click=lambda _: abrir_local(CARPETA_SALIDA_ANONIMIZADA)
                     )
                 ], alignment=ft.MainAxisAlignment.BETWEEN),
@@ -1361,7 +1404,7 @@ async def main(page: ft.Page):
         def click_procesar_lote_anon():
             btn_procesar_lote_anon.disabled = True
             barra_progreso_anon.visible = True
-            texto_estado_anon.value = "Ejecutando anonimización irreversible RGPD..."
+            texto_estado_anon.value = t("anon_status_processing")
             texto_estado_anon.color = ACCENT_ORANGE
             page.update()
 
@@ -1374,10 +1417,10 @@ async def main(page: ft.Page):
                     k_umbral=k_val,
                     generalizar_cuasi=cuasi_val
                 )
-                texto_estado_anon.value = f"Anonimización completada ({cant} archivos procesados con certificado RGPD)."
+                texto_estado_anon.value = t("anon_status_completed", count=cant)
                 texto_estado_anon.color = EMERALD_GREEN
             except Exception as ex:
-                texto_estado_anon.value = f"Error en anonimización: {str(ex)}"
+                texto_estado_anon.value = t("anon_status_error", error=str(ex))
                 texto_estado_anon.color = CRIMSON_ERROR
 
             barra_progreso_anon.visible = False
@@ -1527,9 +1570,9 @@ async def main(page: ft.Page):
             nombre_archivo_traduccion_original = None
             tf_texto_anonimizado.value = ""
             tf_texto_restaurado.value = ""
-            txt_info_doc_traduccion.value = "Sin archivo cargado"
+            txt_info_doc_traduccion.value = t("reversion_txt_no_doc")
             txt_info_doc_traduccion.color = TEXT_MUTED
-            txt_info_key.value = "Seleccione el documento de origen arriba para usar su llave automáticamente"
+            txt_info_key.value = t("reversion_txt_key_auto")
             txt_info_key.color = TEXT_MUTED
             page.update()
 
@@ -1541,8 +1584,8 @@ async def main(page: ft.Page):
                 ft.Row([
                     ft.Icon(ft.icons.SWAP_HORIZ, color=ACCENT_ORANGE, size=22),
                     ft.Column([
-                        ft.Text("Traducción inversa (Desanonimización)", size=17, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                        ft.Text(f"Carpeta de salida/llaves: {carpeta_salida_configurada}", size=11, color=TEXT_MUTED)
+                        ft.Text(t("reversion_card_title"), size=17, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+                        ft.Text(f"Carpeta / Keys: {carpeta_salida_configurada}", size=11, color=TEXT_MUTED)
                     ], spacing=2)
                 ], spacing=8),
                 ft.IconButton(
@@ -1550,7 +1593,7 @@ async def main(page: ft.Page):
                     icon_size=20,
                     disabled=ES_DOCKER,
                     icon_color=TEXT_MUTED if ES_DOCKER else "#FFFFFF",
-                    tooltip="Abrir carpeta de salida en explorador",
+                    tooltip=t("sanitizer_tooltip_folder"),
                     on_click=lambda _: abrir_local(carpeta_salida_configurada)
                 )
             ], alignment=ft.MainAxisAlignment.BETWEEN),
@@ -1559,12 +1602,12 @@ async def main(page: ft.Page):
 
         def ejecutar_reversion_inteligente_con_preloader(e):
             barra_progreso_traduccion.visible = True
-            texto_estado_traduccion.value = "Procesando desanonimización con clave .key..."
+            texto_estado_traduccion.value = t("reversion_status_processing")
             texto_estado_traduccion.color = ACCENT_ORANGE
             page.update()
             try:
                 ejecutar_reversion_inteligente(e)
-                texto_estado_traduccion.value = "Desanonimización finalizada con éxito."
+                texto_estado_traduccion.value = t("reversion_status_completed")
                 texto_estado_traduccion.color = EMERALD_GREEN
             except Exception as ex:
                 texto_estado_traduccion.value = f"Error: {ex}"
@@ -1577,31 +1620,31 @@ async def main(page: ft.Page):
             content=ft.Column([
                 card_header_traduccion_carpeta,
                 ft.Text(
-                    "Pegue la respuesta o suba el archivo generado por la IA. Seleccione el documento de origen y Lia Vault aplicará su llave (.key) automáticamente.",
+                    t("reversion_card_desc"),
                     size=12, color=TEXT_MUTED
                 ),
                 ft.Divider(height=16, color="#334155"),
                 ft.Row([
                     dd_archivo_origen_key,
-                    ft.ElevatedButton("Cargar .key manual", icon=ft.icons.VPN_KEY, color="#FFFFFF", bgcolor="#334155", on_click=click_abrir_picker_key_traduccion)
+                    ft.ElevatedButton(t("reversion_btn_load_key"), icon=ft.icons.VPN_KEY, color="#FFFFFF", bgcolor="#334155", on_click=click_abrir_picker_key_traduccion)
                 ], spacing=10, wrap=True),
                 txt_info_key,
                 ft.Divider(height=10, color="#334155"),
                 ft.Row([
-                    ft.ElevatedButton("Cargar archivo de respuesta IA", icon=ft.icons.FILE_UPLOAD, color="#FFFFFF", bgcolor="#334155", on_click=click_abrir_picker_doc_traduccion),
+                    ft.ElevatedButton(t("reversion_btn_load_ai_doc"), icon=ft.icons.FILE_UPLOAD, color="#FFFFFF", bgcolor="#334155", on_click=click_abrir_picker_doc_traduccion),
                     txt_info_doc_traduccion
                 ], spacing=10),
                 tf_texto_anonimizado,
                 ft.Row([
-                    ft.ElevatedButton("Desanonimizar y revertir", icon=ft.icons.LOCK_OPEN, color="#FFFFFF", bgcolor=ACCENT_ORANGE, on_click=ejecutar_reversion_inteligente_con_preloader),
-                    ft.ElevatedButton("Limpiar campos", icon=ft.icons.CLEAR_ALL, color="#FFFFFF", bgcolor="#334155", on_click=click_limpiar_traduccion)
+                    ft.ElevatedButton(t("reversion_btn_restore"), icon=ft.icons.LOCK_OPEN, color="#FFFFFF", bgcolor=ACCENT_ORANGE, on_click=ejecutar_reversion_inteligente_con_preloader),
+                    ft.ElevatedButton(t("reversion_btn_clear"), icon=ft.icons.CLEAR_ALL, color="#FFFFFF", bgcolor="#334155", on_click=click_limpiar_traduccion)
                 ], spacing=10),
                 barra_progreso_traduccion,
                 texto_estado_traduccion,
                 ft.Divider(height=16, color="#334155"),
-                ft.Text("Respuesta original restaurada:", size=12, weight=ft.FontWeight.BOLD, color=EMERALD_GREEN),
+                ft.Text(t("reversion_output_label"), size=12, weight=ft.FontWeight.BOLD, color=EMERALD_GREEN),
                 tf_texto_restaurado,
-                ft.ElevatedButton("Guardar respuesta en archivo", icon=ft.icons.SAVE_ALT, color="#FFFFFF", bgcolor=EMERALD_GREEN, on_click=guardar_resultado_restaurado)
+                ft.ElevatedButton(t("reversion_btn_save_file"), icon=ft.icons.SAVE_ALT, color="#FFFFFF", bgcolor=EMERALD_GREEN, on_click=guardar_resultado_restaurado)
             ], spacing=12),
             bgcolor=SURFACE_CARD, padding=20, border_radius=10, border=ft.border.all(1, "#334155")
         )
@@ -1628,17 +1671,17 @@ async def main(page: ft.Page):
             content=ft.Column([
                 ft.Row([
                     ft.Icon(ft.icons.MENU_BOOK_OUTLINED, color=ACCENT_ORANGE, size=22),
-                    ft.Text("Diccionario confidencial empresa", size=17, weight=ft.FontWeight.BOLD, color="#FFFFFF")
+                    ft.Text(t("dict_card_title"), size=17, weight=ft.FontWeight.BOLD, color="#FFFFFF")
                 ], spacing=8),
-                ft.Text("Los términos añadidos aquí se censuran automáticamente con [CONFIDENCIAL] en documentos e imágenes.", size=12, color=TEXT_MUTED),
+                ft.Text(t("dict_card_desc"), size=12, color=TEXT_MUTED),
                 ft.Divider(height=16, color="#334155"),
                 ft.Row([
                     tf_nueva_palabra_dic,
-                    ft.ElevatedButton("Añadir", icon=ft.icons.ADD, color="#FFFFFF", bgcolor=EMERALD_GREEN, on_click=agregar_termino_dic),
-                    ft.ElevatedButton("Importar .txt", icon=ft.icons.FILE_UPLOAD, color="#FFFFFF", bgcolor="#334155", on_click=click_abrir_picker_diccionario)
+                    ft.ElevatedButton(t("dict_btn_add"), icon=ft.icons.ADD, color="#FFFFFF", bgcolor=EMERALD_GREEN, on_click=agregar_termino_dic),
+                    ft.ElevatedButton(t("dict_btn_import"), icon=ft.icons.FILE_UPLOAD, color="#FFFFFF", bgcolor="#334155", on_click=click_abrir_picker_diccionario)
                 ], spacing=10, wrap=True),
                 ft.Divider(height=16, color="#334155"),
-                ft.Text("Términos actuales (presione 'X' para eliminar):", size=12, weight=ft.FontWeight.BOLD, color=NEON_BLUE),
+                ft.Text(t("dict_current_terms"), size=12, weight=ft.FontWeight.BOLD, color=NEON_BLUE),
                 wrap_chips_dic
             ], spacing=12),
             bgcolor=SURFACE_CARD, padding=20, border_radius=10, border=ft.border.all(1, "#334155")
@@ -1649,15 +1692,15 @@ async def main(page: ft.Page):
             content=ft.Column([
                 ft.Row([
                     ft.Icon(ft.icons.VPN_KEY_OUTLINED, color=ACCENT_ORANGE, size=22),
-                    ft.Text("Gestión de licencia on-premise", size=17, weight=ft.FontWeight.BOLD, color="#FFFFFF")
+                    ft.Text(t("license_card_title"), size=17, weight=ft.FontWeight.BOLD, color="#FFFFFF")
                 ], spacing=8),
-                ft.Text("Detalles de validación offline de la licencia actual de Lia Vault.", size=12, color=TEXT_MUTED),
+                ft.Text(t("license_card_desc"), size=12, color=TEXT_MUTED),
                 ft.Divider(height=16, color="#334155"),
                 ft.Container(
                     content=ft.Column([
-                        ft.Text(f"ID cliente: {cliente_id}", size=13, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                        ft.Text(f"Días de prueba restantes: {dias_restantes} días", size=12, color=EMERALD_GREEN),
-                        ft.Text(f"Estado oficial: {mensaje_licencia}", size=12, color=NEON_BLUE)
+                        ft.Text(f"{t('license_client_label')} {cliente_id}", size=13, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+                        ft.Text(t("license_trial_days", days=dias_restantes), size=12, color=EMERALD_GREEN),
+                        ft.Text(t("license_valid_msg", client=cliente_id, days=dias_restantes) if licencia_valida else t("license_invalid_msg"), size=12, color=NEON_BLUE)
                     ], spacing=8),
                     bgcolor="#0F172A", padding=16, border_radius=6
                 )
@@ -1680,9 +1723,9 @@ texto_restaurado = desanonimizar_texto("[PERSONA_1]", {"[PERSONA_1]": "Juan Pér
             content=ft.Column([
                 ft.Row([
                     ft.Icon(ft.icons.CODE, color=ACCENT_ORANGE, size=22),
-                    ft.Text("Código on-premise", size=17, weight=ft.FontWeight.BOLD, color="#FFFFFF")
+                    ft.Text(t("code_card_title"), size=17, weight=ft.FontWeight.BOLD, color="#FFFFFF")
                 ], spacing=8),
-                ft.Text("Código de integración para automatización o servidor local backend en su infraestructura.", size=12, color=TEXT_MUTED),
+                ft.Text(t("code_card_desc"), size=12, color=TEXT_MUTED),
                 ft.Divider(height=16, color="#334155"),
                 ft.Container(
                     content=ft.Text(snippet_python, size=11, color="#38BDF8", font_family="monospace"),
@@ -1695,7 +1738,7 @@ texto_restaurado = desanonimizar_texto("[PERSONA_1]", {"[PERSONA_1]": "Juan Pér
         # FOOTER CON ENLACE CHECKPOINT-IA.COM
         footer_container = ft.Container(
             content=ft.Row([
-                ft.Text("Lia Vault On-Premise Suite • Una solución de", size=12, color=TEXT_MUTED),
+                ft.Text(t("footer_suite_text"), size=12, color=TEXT_MUTED),
                 ft.TextButton(
                     content=ft.Text("Checkpoint-ia.com", size=12, color=NEON_BLUE, weight=ft.FontWeight.W_600),
                     url="https://checkpoint-ia.com",
