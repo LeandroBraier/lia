@@ -2,7 +2,7 @@
 from PyInstaller.utils.hooks import collect_all
 from PyInstaller.utils.hooks import copy_metadata
 
-datas = [('assets', 'assets'), ('config', 'config'), ('metadata.json', '.'), ('app_offline.py', '.'), ('validador.py', '.'), ('licencia.key', '.')]
+datas = [('assets', 'assets'), ('config', 'config'), ('metadata.json', '.'), ('app_offline.py', '.'), ('validador.py', '.'), ('licencia_prueba.key', '.')]
 binaries = []
 hiddenimports = ['spacy', 'es_core_news_sm', 'presidio_analyzer', 'presidio_anonymizer', 'easyocr', 'fitz', 'openpyxl', 'docx', 'flet', 'flet_web', 'flet_core']
 datas += copy_metadata('spacy')

@@ -1,39 +1,76 @@
 # -*- coding: utf-8 -*-
 """
-Lia Vault - Sistema de Validación de Licencia Offline
-Desarrollado para asegurar el control de accesos On-Premise sin tocar Internet.
+Lia Vault - Validación de licencias offline.
+
+Las licencias se firman con Ed25519 fuera de la app (herramientas/licencias.py, que no se incluye en los
+ejecutables). La app solo tiene la clave pública: puede verificar una licencia, pero no crearla.
+Se aceptan dos archivos, en este orden:
+  1. licencia.key: licencia que KOR emite para un cliente y que el cliente copia en su carpeta de trabajo.
+  2. licencia_prueba.key: período de prueba firmado que se incluye en cada versión, con vencimiento fijo.
 """
 
-import os
+import base64
 import datetime
-import hashlib
+import json
+import os
+import sys
 
-def _obtener_salt_seguridad():
-    """
-    Obtiene la SALT de integridad desde variables de entorno o el archivo .env.
-    Esto evita exponer claves secretas en repositorios públicos.
-    """
-    salt = os.getenv("LIA_VAULT_SALT")
-    if not salt:
-        ruta_env = os.path.join(os.path.dirname(__file__), ".env")
-        if os.path.exists(ruta_env):
-            try:
-                with open(ruta_env, "r", encoding="utf-8") as f:
-                    for linea in f:
-                        linea = linea.strip()
-                        if linea.startswith("LIA_VAULT_SALT="):
-                            salt = linea.split("=", 1)[1].strip().strip('"').strip("'")
-                            break
-            except Exception:
-                pass
-    if not salt:
-        salt = "LIA_VAULT_SECURITY_DEFAULT_SALT"
-    return salt.encode('utf-8')
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-SALT_INTEGRIDAD = _obtener_salt_seguridad()
+# Clave pública de KOR para verificar licencias. La escribe `python3 herramientas/licencias.py generar-claves`.
+CLAVE_PUBLICA_LICENCIAS = ""
+
+ENCABEZADO = "LIAVAULT-LICENCIA-v2"
+NOMBRE_LICENCIA = "licencia.key"
+NOMBRE_LICENCIA_PRUEBA = "licencia_prueba.key"
+TIPOS = ("prueba", "comercial")
+
+
+class LicenciaInvalidaError(ValueError):
+    pass
+
+
+def serializar_datos(datos):
+    """Forma canónica de los datos firmados: JSON en una línea, claves ordenadas."""
+    return json.dumps(datos, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def armar_licencia(datos, firma):
+    return f"{ENCABEZADO}\n{serializar_datos(datos).decode('utf-8')}\n{base64.b64encode(firma).decode('ascii')}\n"
+
+
+def leer_licencia(contenido, clave_publica_b64=None):
+    """Verifica la firma y devuelve los datos de la licencia. Lanza LicenciaInvalidaError si no es válida."""
+    clave = CLAVE_PUBLICA_LICENCIAS if clave_publica_b64 is None else clave_publica_b64
+    if not clave:
+        raise LicenciaInvalidaError("Esta versión no tiene configurada la clave pública de licencias.")
+    lineas = contenido.strip().splitlines()
+    if len(lineas) != 3 or lineas[0] != ENCABEZADO:
+        raise LicenciaInvalidaError("Formato de licencia no reconocido. Las licencias anteriores deben renovarse.")
+    datos_firmados = lineas[1].encode("utf-8")
+    try:
+        publica = Ed25519PublicKey.from_public_bytes(base64.b64decode(clave))
+        publica.verify(base64.b64decode(lineas[2], validate=True), datos_firmados)
+    except (InvalidSignature, ValueError):
+        raise LicenciaInvalidaError("La firma de la licencia no es válida.") from None
+    try:
+        datos = json.loads(datos_firmados)
+        datetime.date.fromisoformat(datos["vence"])
+        if datos["tipo"] not in TIPOS or not datos["cliente"]:
+            raise ValueError
+    except (ValueError, KeyError, TypeError):
+        raise LicenciaInvalidaError("La licencia tiene datos incompletos.") from None
+    return datos
+
+
+def _dir_recursos():
+    """Carpeta de los archivos incluidos en la app (PyInstaller los deja en sys._MEIPASS)."""
+    return getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+
 
 class ValidadorLicencia:
-    def __init__(self, ruta_licencia=None, ruta_db_oculta=None):
+    def __init__(self, ruta_licencia=None, ruta_db_oculta=None, ruta_prueba=None):
         dir_actual = os.getcwd()
         archivo_prueba = os.path.join(dir_actual, ".test_write_perm")
         es_escribible = True
@@ -45,13 +82,14 @@ class ValidadorLicencia:
             es_escribible = False
 
         if es_escribible:
-            self.ruta_licencia = ruta_licencia or "./licencia.key"
+            self.ruta_licencia = ruta_licencia or f"./{NOMBRE_LICENCIA}"
             self.ruta_db_oculta = ruta_db_oculta or "./.vault_log.db"
         else:
             base_w = os.path.expanduser("~/LiaVault_Workspace")
             os.makedirs(base_w, exist_ok=True)
-            self.ruta_licencia = os.path.join(base_w, "licencia.key")
-            self.ruta_db_oculta = os.path.join(base_w, ".vault_log.db")
+            self.ruta_licencia = ruta_licencia or os.path.join(base_w, NOMBRE_LICENCIA)
+            self.ruta_db_oculta = ruta_db_oculta or os.path.join(base_w, ".vault_log.db")
+        self.ruta_prueba = ruta_prueba or os.path.join(_dir_recursos(), NOMBRE_LICENCIA_PRUEBA)
 
     def registrar_ejecucion_local(self):
         """
@@ -71,14 +109,14 @@ class ValidadorLicencia:
         """
         if not os.path.exists(self.ruta_db_oculta):
             return False
-        
+
         try:
             with open(self.ruta_db_oculta, "r") as f:
                 ultima_fecha_str = f.read().strip()
-            
+
             ultima_fecha = datetime.date.fromisoformat(ultima_fecha_str)
             hoy = datetime.date.today()
-            
+
             # Si el día de hoy es anterior a la última fecha de registro, hay alteración de reloj
             if hoy < ultima_fecha:
                 return True
@@ -86,98 +124,48 @@ class ValidadorLicencia:
             pass
         return False
 
-    def generar_licencia_oficial(self, cliente_id, fecha_exp_str):
-        """
-        Genera un archivo de licencia firmado digitalmente (licencia.key) localmente.
-        El formato de la firma es un Hash SHA256 compuesto por la información de la licencia + SALT.
-        """
-        info_basica = f"{fecha_exp_str}|{cliente_id}"
-        hash_firma = hashlib.sha256(info_basica.encode('utf-8') + SALT_INTEGRIDAD).hexdigest()
-        
-        # Archivo guardado con firma + contenido estructurado
-        contenido_licencia = f"{hash_firma}\n{info_basica}"
-        
-        with open(self.ruta_licencia, "w", encoding="utf-8") as f:
-            f.write(contenido_licencia)
-        
-        return self.ruta_licencia
+    def _evaluar(self, ruta):
+        """(es_valida, mensaje, cliente_id, dias_restantes) para un archivo de licencia."""
+        try:
+            with open(ruta, "r", encoding="utf-8") as f:
+                datos = leer_licencia(f.read())
+        except LicenciaInvalidaError as e:
+            return False, f"❌ {e}", "Desconocido", 0
+        except (OSError, UnicodeDecodeError):
+            return False, f"❌ No se pudo leer el archivo '{os.path.basename(ruta)}'.", "Desconocido", 0
+
+        cliente_id = datos["cliente"]
+        vencimiento = datetime.date.fromisoformat(datos["vence"])
+        hoy = datetime.date.today()
+        es_prueba = datos["tipo"] == "prueba"
+        if hoy > vencimiento:
+            que = "El periodo de prueba" if es_prueba else "La licencia"
+            return False, f"❌ {que} venció el {datos['vence']}.", cliente_id, 0
+        dias_restantes = (vencimiento - hoy).days
+        detalle = "de prueba" if es_prueba else "de licencia"
+        return True, f"✅ Licencia válida para {cliente_id}. Quedan {dias_restantes} días {detalle}.", cliente_id, dias_restantes
 
     def verificar_licencia_offline(self):
         """
-        Verifica la autenticidad y el tiempo de expiración de la licencia de forma offline.
-        Retorna: (es_valida, mensaje, cliente_id, dias_restantes)
+        Verifica la licencia del cliente y, si no hay una válida, la de prueba incluida en la versión.
+        Nunca crea ni repara licencias. Retorna: (es_valida, mensaje, cliente_id, dias_restantes)
         """
         if self.comprobar_reloj_alterado():
             return False, "⚠️ Alerta de Seguridad: Se detectó manipulación del reloj del sistema.", "N/A", 0
 
-        if not os.path.exists(self.ruta_licencia):
-            # Auto-activación transparente al primer uso
-            hoy = datetime.date.today()
-            vencimiento_trial = (hoy + datetime.timedelta(days=365)).isoformat()
-            try:
-                self.generar_licencia_oficial("Usuario On-Premise", vencimiento_trial)
-            except (OSError, IOError):
-                return True, "✅ Licencia válida (Modo Lectura DMG). Quedan 365 días de Trial.", "Usuario On-Premise", 365
+        resultados = [self._evaluar(r) for r in (self.ruta_licencia, self.ruta_prueba) if os.path.isfile(r)]
+        if not resultados:
+            return False, "❌ No hay una licencia instalada. Solicite una a hello@korautomate.com.", "Desconocido", 0
+        for resultado in resultados:
+            if resultado[0]:
+                # Registrar ejecución válida para evitar fraude de reloj en el futuro
+                self.registrar_ejecucion_local()
+                return resultado
+        return resultados[0]
 
-        try:
-            with open(self.ruta_licencia, "r", encoding="utf-8") as f:
-                lineas = f.read().splitlines()
-            
-            if len(lineas) < 2:
-                return False, "❌ Error: Formato de licencia corrupto o incompleto.", "Desconocido", 0
-            
-            hash_guardado = lineas[0]
-            info_basica = lineas[1]
-            
-            # Verificar firma de integridad
-            hash_calculado = hashlib.sha256(info_basica.encode('utf-8') + SALT_INTEGRIDAD).hexdigest()
-            if hash_guardado != hash_calculado:
-                # Si la firma no coincide o es de otro entorno, intentar auto-reparar
-                try:
-                    hoy = datetime.date.today()
-                    vencimiento_trial = (hoy + datetime.timedelta(days=365)).isoformat()
-                    self.generar_licencia_oficial("Usuario On-Premise", vencimiento_trial)
-                    return self.verificar_licencia_offline()
-                except (OSError, IOError):
-                    # Si el sistema de archivos es Read-Only (ej. montado directamente desde DMG de macOS),
-                    # omitir la escritura física e interpretar el acceso como valido durante la sesión.
-                    hoy = datetime.date.today()
-                    fecha_exp_str = info_basica.split("|")[0] if "|" in info_basica else (hoy + datetime.timedelta(days=365)).isoformat()
-                    try:
-                        fecha_expiracion = datetime.date.fromisoformat(fecha_exp_str)
-                    except Exception:
-                        fecha_expiracion = hoy + datetime.timedelta(days=365)
-                    dias_restantes = max(0, (fecha_expiracion - hoy).days)
-                    return True, f"✅ Licencia válida (Modo Lectura DMG). Quedan {dias_restantes} días de Trial.", "Usuario On-Premise", dias_restantes
-            
-            # Parsear datos de la licencia
-            fecha_exp_str, cliente_id = info_basica.split("|")
-            fecha_expiracion = datetime.date.fromisoformat(fecha_exp_str)
-            hoy = datetime.date.today()
-            
-            if hoy > fecha_expiracion:
-                return False, f"❌ El periodo de prueba (Trial de 1 año) expiró el {fecha_exp_str}.", cliente_id, 0
-            
-            dias_restantes = (fecha_expiracion - hoy).days
-            
-            # Registrar ejecución válida para evitar fraude de reloj en el futuro
-            self.registrar_ejecucion_local()
-            
-            return True, f"✅ Licencia válida para {cliente_id}. Quedan {dias_restantes} días de Trial.", cliente_id, dias_restantes
-
-        except Exception as e:
-            return False, f"❌ Error al procesar el archivo 'licencia.key': {str(e)}", "Desconocido", 0
 
 if __name__ == "__main__":
-    # Autogenerar licencia de prueba de 1 año si no existe para demostración rápida
-    validador = ValidadorLicencia()
-    hoy = datetime.date.today()
-    vencimiento_un_ano = (hoy + datetime.timedelta(days=365)).isoformat()
-    
-    print("Iniciando validación y autogeneración de llave de prueba...")
-    validador.generar_licencia_oficial("CLIENTE_DEMO_PYME", vencimiento_un_ano)
-    
-    valido, msg, cliente, dias = validador.verificar_licencia_offline()
+    valido, msg, cliente, dias = ValidadorLicencia().verificar_licencia_offline()
     print(f"Resultado de verificación local: {valido}")
     print(f"Mensaje oficial: {msg}")
     print(f"Días restantes de acceso: {dias}")

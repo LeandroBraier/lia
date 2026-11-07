@@ -9,6 +9,13 @@ import sys
 import platform
 import subprocess
 import tempfile
+import datetime
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "herramientas"))
+from licencias import emitir_licencia, obtener_clave_privada  # noqa: E402
+from validador import NOMBRE_LICENCIA_PRUEBA  # noqa: E402
+
+DIAS_PRUEBA = 365
 
 # Forzar codificacion UTF-8 segura para salida por consola
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -27,7 +34,15 @@ def construir_ejecutable_nativo():
     
     system = platform.system()
     print(f"[+] Sistema Operativo Detectado: {system}")
-    
+
+    # Licencia de prueba firmada para esta versión: vence DIAS_PRUEBA días después de compilar.
+    # Pide la clave privada (o la toma de LIA_VAULT_CLAVE_PRIVADA).
+    vence = datetime.date.today() + datetime.timedelta(days=DIAS_PRUEBA)
+    contenido = emitir_licencia(obtener_clave_privada(), "Prueba Lia Vault", "prueba", vence)
+    with open(NOMBRE_LICENCIA_PRUEBA, "w", encoding="utf-8") as f:
+        f.write(contenido)
+    print(f"[+] Licencia de prueba incluida, válida hasta el {vence.isoformat()}")
+
     # Instalar PyInstaller si no está presente
     subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller"], check=True)
     
@@ -63,8 +78,7 @@ def construir_ejecutable_nativo():
         "--copy-metadata=es_core_news_sm",
     ]
 
-    if os.path.exists("licencia.key"):
-        cmd.append(f"--add-data=licencia.key{sep}.")
+    cmd.append(f"--add-data={NOMBRE_LICENCIA_PRUEBA}{sep}.")
 
     if system == "Darwin":
         if os.path.exists("assets/icon.icns"):
