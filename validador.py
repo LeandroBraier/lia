@@ -19,7 +19,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 # Clave pública de KOR para verificar licencias. La escribe `python3 herramientas/licencias.py generar-claves`.
-CLAVE_PUBLICA_LICENCIAS = ""
+CLAVE_PUBLICA_LICENCIAS = "g9XDQIaDpRQY1e5rXhHANuPxPzg6hXQ8fy1hCoCaNc0="
 
 ENCABEZADO = "LIAVAULT-LICENCIA-v2"
 NOMBRE_LICENCIA = "licencia.key"
