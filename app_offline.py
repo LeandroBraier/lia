@@ -30,24 +30,13 @@ try:
     from presidio_anonymizer import AnonymizerEngine
     from presidio_anonymizer.entities import OperatorConfig
 except ImportError:
-    class _MockRegistry:
-        def add_recognizer(self, *args, **kwargs): pass
-    class NlpEngineProvider:
-        def __init__(self, **kwargs): pass
-        def create_engine(self): return None
-    class Pattern:
-        def __init__(self, **kwargs): pass
-    class PatternRecognizer:
-        def __init__(self, **kwargs): pass
-    class AnalyzerEngine:
-        def __init__(self, **kwargs):
-            self.registry = _MockRegistry()
-            self.supported_languages = kwargs.get('supported_languages', ['es', 'en'])
-        def analyze(self, **kwargs): return []
-    class AnonymizerEngine:
-        def anonymize(self, **kwargs):
-            class Res: text = kwargs.get('text', '')
-            return Res()
+    # Sin Presidio no se procesa nada (fail-closed): exigir_motor() lo informa al intentar procesar.
+    AnalyzerEngine = PatternRecognizer = Pattern = NlpEngineProvider = AnonymizerEngine = OperatorConfig = None
+
+
+class MotorNoDisponibleError(RuntimeError):
+    """El motor de detección o un componente necesario para el archivo no está disponible o falló.
+    Se aborta el procesamiento: nunca se entrega un archivo sin anonimizar."""
 
 # Certificados de confianza para descargar los modelos de OCR: el Python de python.org en macOS no trae
 # las CA del sistema. Se usan las de certifi; la verificación TLS sigue activa.
@@ -225,7 +214,7 @@ try:
     }
     provider = NlpEngineProvider(nlp_configuration=nlp_config)
     nlp_engine = provider.create_engine()
-    analyzer = AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=supported_langs) if nlp_engine else AnalyzerEngine(supported_languages=supported_langs)
+    analyzer = AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=supported_langs)
     anonymizer = AnonymizerEngine()
     
     # 1. Tarjetas de crédito
@@ -272,9 +261,28 @@ try:
         reconocedor_nombres_en = PatternRecognizer(supported_entity="PERSON", supported_language="en", patterns=[patron_nombres])
         analyzer.registry.add_recognizer(reconocedor_nombres_en)
 except Exception as e:
-    print(f"⚠️ Alerta: Presidio o spaCy no cargados completamente: {e}")
+    print(f"⚠️ Alerta: Presidio o spaCy no se cargaron ({type(e).__name__}). No se procesarán archivos.")
     analyzer = None
     anonymizer = None
+
+
+def exigir_motor():
+    """Lanza MotorNoDisponibleError si Presidio o spaCy no se cargaron."""
+    if analyzer is None:
+        raise MotorNoDisponibleError(
+            "El motor de anonimización (Presidio/spaCy) no está disponible. "
+            "No se procesó ningún archivo. Reinstale Lia Vault o sus dependencias."
+        )
+
+
+def _analizar_o_fallar(**kwargs):
+    """analyzer.analyze() que, ante cualquier error, aborta el archivo en lugar de seguir sin detección.
+    El mensaje no incluye el texto analizado."""
+    exigir_motor()
+    try:
+        return analyzer.analyze(**kwargs)
+    except Exception as ex:
+        raise MotorNoDisponibleError(f"Falló la detección de datos personales ({type(ex).__name__}).") from ex
 
 try:
     if easyocr:
@@ -727,6 +735,7 @@ def anonimizar_texto_real_irreversible(texto, generalizar_cuasi=True):
         texto_anom = texto_generalizado
 
     # 4. Presidio AI Engine (Bilingüe / Mixto con guard gramatical centralizado)
+    exigir_motor()
     if analyzer:
         try:
             texto_analisis = all_caps_to_title_case(texto_anom)
@@ -734,7 +743,7 @@ def anonimizar_texto_real_irreversible(texto, generalizar_cuasi=True):
             
             for lang in idiomas_a_analizar:
                 if lang in analyzer.supported_languages:
-                    res_lang = analyzer.analyze(
+                    res_lang = _analizar_o_fallar(
                         text=texto_analisis,
                         language=lang,
                         entities=["PERSON", "LOCATION", "ORGANIZATION", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD"]
@@ -763,8 +772,10 @@ def anonimizar_texto_real_irreversible(texto, generalizar_cuasi=True):
                 stats["identificadores_directos_suprimidos"] += 1
         except IdiomaNoSoportadoError:
             raise
+        except MotorNoDisponibleError:
+            raise
         except Exception as ex:
-            print(f"Error en Presidio Anonimización Real: {ex}")
+            raise MotorNoDisponibleError(f"Falló la detección de datos personales ({type(ex).__name__}).") from ex
 
     # 5. Nombres propios conocidos (ES y EN con guard gramatical, ordenados por longitud)
     for nombre in sorted(list(set(SPANISH_NAMES + ENGLISH_NAMES)), key=len, reverse=True):
@@ -863,13 +874,14 @@ def anonimizar_texto_con_ia_y_key(texto, nombre_archivo=None, carpeta_salida=Non
     valor_a_etiqueta = {val: k for k, val in key_map.items()}
 
     # 2. Presidio AI Engine (Bilingüe / Mixto con guard gramatical)
+    exigir_motor()
     if analyzer:
         try:
             texto_analisis = all_caps_to_title_case(texto_anom)
             todas_entidades = []
             for lang in idiomas_a_analizar:
                 if lang in analyzer.supported_languages:
-                    res_lang = analyzer.analyze(
+                    res_lang = _analizar_o_fallar(
                         text=texto_analisis,
                         language=lang,
                         entities=["PERSON", "LOCATION", "ORGANIZATION", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD"]
@@ -906,8 +918,10 @@ def anonimizar_texto_con_ia_y_key(texto, nombre_archivo=None, carpeta_salida=Non
                 texto_anom = texto_anom[:s_aj] + etiqueta + texto_anom[e_aj:]
         except IdiomaNoSoportadoError:
             raise
+        except MotorNoDisponibleError:
+            raise
         except Exception as ex:
-            print(f"Error analizando Presidio: {ex}")
+            raise MotorNoDisponibleError(f"Falló la detección de datos personales ({type(ex).__name__}).") from ex
 
     valor_a_etiqueta = {val: k for k, val in key_map.items()}
 
@@ -1263,8 +1277,8 @@ def procesar_excel(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=Non
 
 def procesar_pdf(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=None):
     if not fitz:
-        shutil.copy(ruta_origen, ruta_destino)
-        return
+        raise MotorNoDisponibleError("PyMuPDF no está instalado: no se pueden procesar archivos PDF.")
+    exigir_motor()
         
     doc = fitz.open(ruta_origen)
     mapas_acumulados = {}
@@ -1284,6 +1298,8 @@ def procesar_pdf(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=None)
         pagina.apply_redactions()
         
         # C) Si no tiene texto, aplicar OCR si está disponible
+        if not texto_pagina.strip() and pagina.get_images() and not lector_ocr:
+            raise MotorNoDisponibleError("El PDF tiene páginas escaneadas y el OCR no está disponible.")
         if not texto_pagina.strip() and lector_ocr:
             pix = pagina.get_pixmap(dpi=200)
             ruta_tmp = f"tmp_pag_{num_pag}.png"
@@ -1304,8 +1320,8 @@ def procesar_pdf(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=None)
 
 def procesar_imagen_ocr(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=None):
     if not cv2 or not lector_ocr:
-        shutil.copy(ruta_origen, ruta_destino)
-        return
+        raise MotorNoDisponibleError("El OCR (EasyOCR/OpenCV) no está disponible: no se pueden procesar imágenes.")
+    exigir_motor()
         
     resultados_ocr = lector_ocr.readtext(ruta_origen)
     imagen_cv = cv2.imread(ruta_origen)
@@ -1315,10 +1331,10 @@ def procesar_imagen_ocr(ruta_origen, ruta_destino, nombre_archivo, carpeta_salid
 
     for (coordenadas, texto_detectado, probabilidad) in resultados_ocr:
         if len(texto_detectado.strip()) > 1:
-            analisis = analyzer.analyze(
+            analisis = _analizar_o_fallar(
                 text=texto_detectado, language="es",
                 entities=["PERSON", "LOCATION", "ORGANIZATION", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD"]
-            ) if analyzer else []
+            )
             
             dict_match = [t for t in terminos_corp if t.lower() in texto_detectado.lower()]
             
@@ -1345,7 +1361,22 @@ def procesar_imagen_ocr(ruta_origen, ruta_destino, nombre_archivo, carpeta_salid
             json.dump(mapas_acumulados, f, indent=4, ensure_ascii=False)
 
 
+def _eliminar_salida_parcial(target_salida, ruta_destino, nombre_archivo):
+    """Borra lo que haya quedado de un archivo que falló: salida, llaves y certificado."""
+    nombre_base = os.path.splitext(nombre_archivo)[0]
+    for ruta in (ruta_destino,
+                 os.path.join(target_salida, f"{nombre_archivo}.key"),
+                 os.path.join(target_salida, f"{nombre_archivo}.reverse.key"),
+                 os.path.join(target_salida, f"Certificado_Anonimizacion_{nombre_base}.txt")):
+        try:
+            if os.path.exists(ruta):
+                os.remove(ruta)
+        except OSError:
+            print(f"⚠️ No se pudo borrar una salida parcial en {target_salida}")
+
+
 def ejecutar_procesamiento_lotes(carpeta_salida=None, archivo_especifico=None):
+    exigir_motor()
     target_salida = carpeta_salida or CARPETA_SALIDA_DEFECTO
     os.makedirs(target_salida, exist_ok=True)
     os.makedirs(CARPETA_PROCESADOS, exist_ok=True)
@@ -1399,11 +1430,13 @@ def ejecutar_procesamiento_lotes(carpeta_salida=None, archivo_especifico=None):
             print(f"✅ Procesado y movido a /procesados: {nombre_archivo}")
 
         except IdiomaNoSoportadoError as e_lang:
+            _eliminar_salida_parcial(target_salida, ruta_destino, nombre_archivo)
             print(f"⚠️ Archivo rechazado por idioma no soportado {nombre_archivo}: {e_lang}")
             if archivo_especifico:
                 raise e_lang
         except Exception as e:
-            print(f"❌ Error al procesar {nombre_archivo}: {e}")
+            _eliminar_salida_parcial(target_salida, ruta_destino, nombre_archivo)
+            print(f"❌ Error al procesar {nombre_archivo}: {type(e).__name__}")
             if archivo_especifico:
                 raise e
             
@@ -1814,8 +1847,8 @@ def procesar_excel_real(ruta_origen, ruta_destino, nombre_archivo, carpeta_salid
 
 def procesar_pdf_real(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=None, generalizar_cuasi=True):
     if not fitz:
-        shutil.copy(ruta_origen, ruta_destino)
-        return
+        raise MotorNoDisponibleError("PyMuPDF no está instalado: no se pueden procesar archivos PDF.")
+    exigir_motor()
         
     doc = fitz.open(ruta_origen)
     stats_global = {
@@ -1835,15 +1868,17 @@ def procesar_pdf_real(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=
             # 1. Redactar entidades de Presidio
             if analyzer:
                 try:
-                    res_pii = analyzer.analyze(text=all_caps_to_title_case(texto_pagina), language="es",
+                    res_pii = _analizar_o_fallar(text=all_caps_to_title_case(texto_pagina), language="es",
                                                entities=["PERSON", "LOCATION", "ORGANIZATION", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD"])
                     for pii in res_pii:
                         val_orig = texto_pagina[pii.start:pii.end].strip()
                         if len(val_orig) > 1 and val_orig.lower() not in SOFTWARE_ALLOWLIST:
                             for rect in pagina.search_for(val_orig):
                                 pagina.add_redact_annot(rect, fill=(0.1, 0.1, 0.1))
-                except Exception:
-                    pass
+                except MotorNoDisponibleError:
+                    raise
+                except Exception as ex:
+                    raise MotorNoDisponibleError(f"Falló la detección de datos personales ({type(ex).__name__}).") from ex
 
             # 2. Redactar entidades por expresiones regulares (Teléfonos, Escuelas, Correos, etc.)
             for reg, _ in PATRONES_REGEX_ANON:
@@ -1853,11 +1888,13 @@ def procesar_pdf_real(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=
                         if val_m and len(val_m.strip()) > 2 and val_m.lower().strip() not in SOFTWARE_ALLOWLIST:
                             for rect in pagina.search_for(val_m.strip()):
                                 pagina.add_redact_annot(rect, fill=(0.1, 0.1, 0.1))
-                except Exception:
-                    pass
+                except Exception as ex:
+                    raise MotorNoDisponibleError(f"Falló la redacción del PDF ({type(ex).__name__}).") from ex
                     
         pagina.apply_redactions()
         
+        if not texto_pagina.strip() and pagina.get_images() and not lector_ocr:
+            raise MotorNoDisponibleError("El PDF tiene páginas escaneadas y el OCR no está disponible.")
         if not texto_pagina.strip() and lector_ocr:
             pix = pagina.get_pixmap(dpi=200)
             ruta_tmp = f"tmp_pag_{num_pag}.png"
@@ -1875,8 +1912,8 @@ def procesar_pdf_real(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=
 
 def procesar_imagen_ocr_real(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=None):
     if not cv2 or not lector_ocr:
-        shutil.copy(ruta_origen, ruta_destino)
-        return
+        raise MotorNoDisponibleError("El OCR (EasyOCR/OpenCV) no está disponible: no se pueden procesar imágenes.")
+    exigir_motor()
         
     resultados_ocr = lector_ocr.readtext(ruta_origen)
     imagen_cv = cv2.imread(ruta_origen)
@@ -1886,10 +1923,10 @@ def procesar_imagen_ocr_real(ruta_origen, ruta_destino, nombre_archivo, carpeta_
 
     for (coordenadas, texto_detectado, probabilidad) in resultados_ocr:
         if len(texto_detectado.strip()) > 1:
-            analisis = analyzer.analyze(
+            analisis = _analizar_o_fallar(
                 text=texto_detectado, language="es",
                 entities=["PERSON", "LOCATION", "ORGANIZATION", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD"]
-            ) if analyzer else []
+            )
             
             dict_match = [t for t in terminos_corp if t.lower() in texto_detectado.lower()]
             
@@ -1913,6 +1950,7 @@ def procesar_imagen_ocr_real(ruta_origen, ruta_destino, nombre_archivo, carpeta_
 
 
 def ejecutar_anonimizacion_real_lotes(carpeta_salida=None, k_umbral=3, generalizar_cuasi=True, archivo_especifico=None):
+    exigir_motor()
     """
     Ejecuta el pipeline de Anonimización Real Irreversible (Considerando 26 RGPD & Directrices EDPB 02/2026).
     - Cero persistencia de claves .key.
@@ -1971,11 +2009,13 @@ def ejecutar_anonimizacion_real_lotes(carpeta_salida=None, k_umbral=3, generaliz
             print(f"✅ Anonimizado (RGPD) y movido a /procesados: {nombre_archivo}")
 
         except IdiomaNoSoportadoError as e_lang:
+            _eliminar_salida_parcial(target_salida, ruta_destino, nombre_archivo)
             print(f"⚠️ Archivo rechazado por idioma no soportado {nombre_archivo}: {e_lang}")
             if archivo_especifico:
                 raise e_lang
         except Exception as e:
-            print(f"❌ Error al anonimizar {nombre_archivo}: {e}")
+            _eliminar_salida_parcial(target_salida, ruta_destino, nombre_archivo)
+            print(f"❌ Error al anonimizar {nombre_archivo}: {type(e).__name__}")
             if archivo_especifico:
                 raise e
             
