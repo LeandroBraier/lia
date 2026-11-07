@@ -825,17 +825,38 @@ async def main(page: ft.Page):
         except Exception as ex:
             print(f"Error pick_files doc traduccion: {ex}")
 
+    async def elegir_e_instalar_licencia():
+        """Abre el selector y verifica e instala la licencia elegida. None si se canceló."""
+        try:
+            files = await global_file_picker.pick_files(with_data=True, allowed_extensions=["key"], cancel_upload_on_window_blur=False)
+            if not files:
+                return None
+            f = files[0]
+            if getattr(f, "bytes", None):
+                contenido = f.bytes.decode("utf-8", errors="replace")
+            elif getattr(f, "path", None) and os.path.exists(f.path):
+                with open(f.path, "r", encoding="utf-8", errors="replace") as f_in:
+                    contenido = f_in.read()
+            else:
+                return False, "❌ No se pudo leer el archivo seleccionado.", "Desconocido", 0
+            return validador.instalar_licencia(contenido)
+        except Exception as ex:
+            return False, f"❌ No se pudo cargar la licencia ({type(ex).__name__}).", "Desconocido", 0
+
     # --- PANTALLA DE ACCESO BLOQUEADO ---
-    if not licencia_valida:
-        def intentar_revalidar(e):
+    def mostrar_pantalla_bloqueo():
+        async def click_cargar_licencia_bloqueo(e):
             nonlocal licencia_valida, mensaje_licencia, cliente_id, dias_restantes
-            lic_valida, msg_lic, cli_id, dias = validador.verificar_licencia_offline()
-            if lic_valida:
-                page.controls.clear()
+            resultado = await elegir_e_instalar_licencia()
+            if resultado is None:
+                return
+            if resultado[0]:
+                licencia_valida, mensaje_licencia, cliente_id, dias_restantes = resultado
+                page.clean()
                 cargar_interfaz_principal()
             else:
-                texto_error_licencia.value = f"⚠️ Estado de licencia: {msg_lic}"
-                page.update()
+                texto_error_licencia.value = resultado[1]
+            page.update()
 
         texto_error_licencia = ft.Text(mensaje_licencia, size=13, color="#FCA5A5", text_align=ft.TextAlign.CENTER, weight=ft.FontWeight.W_500)
 
@@ -843,8 +864,8 @@ async def main(page: ft.Page):
             ft.Container(
                 content=ft.Column([
                     ft.Icon(ft.icons.TIMER_OFF_ROUNDED, color=ACCENT_ORANGE, size=72),
-                    ft.Text("Período de Prueba Expirado", size=24, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                    ft.Text("Tu licencia de uso On-Premise ha llegado a su término.", size=13, color=TEXT_MUTED),
+                    ft.Text("Se necesita una licencia válida", size=24, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+                    ft.Text("Carga el archivo licencia.key que te enviamos o solicita una renovación.", size=13, color=TEXT_MUTED),
                     ft.Container(
                         content=ft.Column([
                             texto_error_licencia,
@@ -854,10 +875,16 @@ async def main(page: ft.Page):
                     ),
                     ft.Row([
                         ft.ElevatedButton(
-                            "Solicitar Renovación por Email", 
-                            icon=ft.icons.EMAIL_OUTLINED, 
-                            color="#FFFFFF", 
-                            bgcolor=ACCENT_ORANGE, 
+                            "Cargar licencia",
+                            icon=ft.icons.UPLOAD_FILE,
+                            color="#FFFFFF",
+                            bgcolor=ACCENT_ORANGE,
+                            height=42,
+                            on_click=click_cargar_licencia_bloqueo
+                        ),
+                        ft.OutlinedButton(
+                            "Solicitar Renovación por Email",
+                            icon=ft.icons.EMAIL_OUTLINED,
                             height=42,
                             on_click=lambda _: abrir_url("mailto:hello@korautomate.com?subject=Quiero%20renovar%20mi%20licencia%20de%20Lia%20Vault")
                         ),
@@ -890,7 +917,6 @@ async def main(page: ft.Page):
             )
         )
         page.update()
-        return
 
     # --- INTERFAZ PRINCIPAL SUITE LIA VAULT ---
     def cargar_interfaz_principal():
@@ -986,7 +1012,7 @@ async def main(page: ft.Page):
             ft.Container(
                 content=ft.Row([
                     ft.Icon(ft.icons.VERIFIED_USER, color=EMERALD_GREEN, size=16),
-                    ft.Text(t("license_active_badge", days=dias_restantes) if licencia_valida else t("license_invalid_badge"), size=12, color=EMERALD_GREEN, weight=ft.FontWeight.W_600)
+                    txt_badge_licencia := ft.Text(t("license_active_badge", days=dias_restantes) if licencia_valida else t("license_invalid_badge"), size=12, color=EMERALD_GREEN, weight=ft.FontWeight.W_600)
                 ], spacing=8),
                 bgcolor=SURFACE_CARD, padding=ft.Padding(left=12, right=12, top=8, bottom=8), border_radius=16, border=ft.border.all(1, "#334155")
             )
@@ -1691,6 +1717,30 @@ async def main(page: ft.Page):
         )
 
         # SECCIÓN 4: LICENCIAS
+        txt_lic_cliente = ft.Text(f"{t('license_client_label')} {cliente_id}", size=13, weight=ft.FontWeight.BOLD, color="#FFFFFF")
+        txt_lic_dias = ft.Text(t("license_trial_days", days=dias_restantes), size=12, color=EMERALD_GREEN)
+        txt_lic_estado = ft.Text(t("license_valid_msg", client=cliente_id, days=dias_restantes) if licencia_valida else t("license_invalid_msg"), size=12, color=NEON_BLUE)
+        txt_lic_carga = ft.Text(t("license_load_hint"), size=12, color=TEXT_MUTED)
+
+        async def click_cargar_licencia(e):
+            nonlocal licencia_valida, mensaje_licencia, cliente_id, dias_restantes
+            resultado = await elegir_e_instalar_licencia()
+            if resultado is None:
+                return
+            if resultado[0]:
+                licencia_valida, mensaje_licencia, cliente_id, dias_restantes = resultado
+                txt_lic_cliente.value = f"{t('license_client_label')} {cliente_id}"
+                txt_lic_dias.value = t("license_trial_days", days=dias_restantes)
+                txt_lic_estado.value = t("license_valid_msg", client=cliente_id, days=dias_restantes)
+                txt_badge_licencia.value = t("license_active_badge", days=dias_restantes)
+                txt_lic_carga.value = t("license_load_ok")
+                txt_lic_carga.color = EMERALD_GREEN
+            else:
+                # La licencia actual sigue instalada: solo se informa el error.
+                txt_lic_carga.value = resultado[1]
+                txt_lic_carga.color = CRIMSON_ERROR
+            page.update()
+
         panel_licencias = ft.Container(
             content=ft.Column([
                 ft.Row([
@@ -1700,13 +1750,13 @@ async def main(page: ft.Page):
                 ft.Text(t("license_card_desc"), size=12, color=TEXT_MUTED),
                 ft.Divider(height=16, color="#334155"),
                 ft.Container(
-                    content=ft.Column([
-                        ft.Text(f"{t('license_client_label')} {cliente_id}", size=13, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                        ft.Text(t("license_trial_days", days=dias_restantes), size=12, color=EMERALD_GREEN),
-                        ft.Text(t("license_valid_msg", client=cliente_id, days=dias_restantes) if licencia_valida else t("license_invalid_msg"), size=12, color=NEON_BLUE)
-                    ], spacing=8),
+                    content=ft.Column([txt_lic_cliente, txt_lic_dias, txt_lic_estado], spacing=8),
                     bgcolor="#0F172A", padding=16, border_radius=6
-                )
+                ),
+                ft.Row([
+                    ft.ElevatedButton(t("license_load_button"), icon=ft.icons.UPLOAD_FILE, color="#FFFFFF", bgcolor=ACCENT_ORANGE, height=42, on_click=click_cargar_licencia),
+                    txt_lic_carga
+                ], spacing=12, wrap=True)
             ], spacing=12),
             bgcolor=SURFACE_CARD, padding=20, border_radius=10, border=ft.border.all(1, "#334155")
         )
@@ -1794,7 +1844,10 @@ texto_restaurado = desanonimizar_texto("[PERSONA_1]", {"[PERSONA_1]": "Juan Pér
             ], expand=True)
         )
 
-    cargar_interfaz_principal()
+    if licencia_valida:
+        cargar_interfaz_principal()
+    else:
+        mostrar_pantalla_bloqueo()
 
 
 def liberar_puerto(puerto=8502):

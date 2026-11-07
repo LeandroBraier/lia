@@ -20,7 +20,7 @@ TRANSLATIONS = {
         "privacy_tagline": "100% Local • Cero Fugas de Datos • Motor NLP On-Premise",
         "lang_switch_tooltip": "Cambiar idioma / Switch language",
         "server_lan": "127.0.0.1:8502 (LAN)",
-        "license_active_badge": "Trial activo ({days}d)",
+        "license_active_badge": "Licencia activa ({days}d)",
         "license_invalid_badge": "Licencia No Válida",
 
         # Sidebar
@@ -132,9 +132,12 @@ TRANSLATIONS = {
         "license_card_title": "Gestión de licencia on-premise",
         "license_card_desc": "Detalles de validación offline de la licencia actual de Lia Vault.",
         "license_client_label": "ID cliente:",
-        "license_trial_days": "Días de prueba restantes: {days} días",
+        "license_trial_days": "Días restantes: {days}",
         "license_status_text": "Estado oficial: {status}",
-        "license_valid_msg": "✅ Licencia válida para {client}. Quedan {days} días de Trial.",
+        "license_valid_msg": "✅ Licencia válida para {client}. Quedan {days} días.",
+        "license_load_button": "Cargar licencia",
+        "license_load_hint": "Selecciona el archivo licencia.key que te envió KOR Automate.",
+        "license_load_ok": "✅ Licencia instalada correctamente.",
         "license_invalid_msg": "❌ Licencia no válida o expirada.",
 
         # Code Tab
@@ -168,7 +171,7 @@ TRANSLATIONS = {
         "privacy_tagline": "100% Local • Zero Data Leakage • On-Premise NLP Engine",
         "lang_switch_tooltip": "Switch language / Cambiar idioma",
         "server_lan": "127.0.0.1:8502 (LAN)",
-        "license_active_badge": "Active Trial ({days}d)",
+        "license_active_badge": "Active license ({days}d)",
         "license_invalid_badge": "Invalid License",
 
         # Sidebar
@@ -280,9 +283,12 @@ TRANSLATIONS = {
         "license_card_title": "On-Premise License Management",
         "license_card_desc": "Offline validation details for current Lia Vault license.",
         "license_client_label": "Client ID:",
-        "license_trial_days": "Trial days remaining: {days} days",
+        "license_trial_days": "Days remaining: {days}",
         "license_status_text": "Official status: {status}",
-        "license_valid_msg": "✅ Valid license for {client}. {days} trial days remaining.",
+        "license_valid_msg": "✅ Valid license for {client}. {days} days remaining.",
+        "license_load_button": "Load license",
+        "license_load_hint": "Select the licencia.key file sent by KOR Automate.",
+        "license_load_ok": "✅ License installed.",
         "license_invalid_msg": "❌ Invalid or expired license.",
 
         # Code Tab

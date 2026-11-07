@@ -114,6 +114,21 @@ class TestLicencias(unittest.TestCase):
         with patch.object(validador, "CLAVE_PUBLICA_LICENCIAS", ""):
             self.assertFalse(self.v.verificar_licencia_offline()[0])
 
+    def test_instalar_licencia_valida(self):
+        valida, _, cliente, _ = self.v.instalar_licencia(self._licencia())
+        self.assertTrue(valida)
+        self.assertEqual(cliente, "Empresa SL")
+        self.assertTrue(self.v.verificar_licencia_offline()[0])
+
+    def test_instalar_licencia_invalida_no_reemplaza_la_actual(self):
+        actual = self._licencia(cliente="Cliente Actual")
+        self._guardar(self.v.ruta_licencia, actual)
+        for contenido in ("cualquier cosa", self._licencia(dias=-1)):
+            with self.subTest(contenido=contenido[:20]):
+                self.assertFalse(self.v.instalar_licencia(contenido)[0])
+                with open(self.v.ruta_licencia, encoding="utf-8") as f:
+                    self.assertEqual(f.read(), actual)
+
     def test_la_app_no_contiene_firma_ni_salt(self):
         codigo = open(validador.__file__, encoding="utf-8").read()
         self.assertNotIn("SALT", codigo)

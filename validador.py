@@ -145,6 +145,26 @@ class ValidadorLicencia:
         detalle = "de prueba" if es_prueba else "de licencia"
         return True, f"✅ Licencia válida para {cliente_id}. Quedan {dias_restantes} días {detalle}.", cliente_id, dias_restantes
 
+    def instalar_licencia(self, contenido):
+        """
+        Verifica una licencia y, solo si es válida y vigente, la guarda como licencia del cliente.
+        Si no lo es, la licencia actual no se toca. Retorna: (es_valida, mensaje, cliente_id, dias_restantes)
+        """
+        try:
+            datos = leer_licencia(contenido)
+        except LicenciaInvalidaError as e:
+            return False, f"❌ {e}", "Desconocido", 0
+        if datetime.date.fromisoformat(datos["vence"]) < datetime.date.today():
+            return False, f"❌ La licencia venció el {datos['vence']}.", datos["cliente"], 0
+        temporal = self.ruta_licencia + ".tmp"
+        try:
+            with open(temporal, "w", encoding="utf-8") as f:
+                f.write(contenido)
+            os.replace(temporal, self.ruta_licencia)
+        except OSError:
+            return False, f"❌ No se pudo guardar la licencia en {os.path.dirname(os.path.abspath(self.ruta_licencia))}.", datos["cliente"], 0
+        return self.verificar_licencia_offline()
+
     def verificar_licencia_offline(self):
         """
         Verifica la licencia del cliente y, si no hay una válida, la de prueba incluida en la versión.
