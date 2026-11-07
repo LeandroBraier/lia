@@ -13,7 +13,6 @@ import platform
 import subprocess
 import flet as ft
 import warnings
-import ssl
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     try:
@@ -25,10 +24,6 @@ if sys.stderr and hasattr(sys.stderr, "reconfigure"):
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
-try:
-    ssl._create_default_https_context = ssl._create_unverified_context
-except AttributeError:
-    pass
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # Parchear resolución de iconos y alineaciones de forma 100% segura

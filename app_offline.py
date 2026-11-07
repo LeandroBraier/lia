@@ -49,12 +49,10 @@ except ImportError:
             class Res: text = kwargs.get('text', '')
             return Res()
 
-# Parche SSL para descarga de modelos en macOS
-import ssl
-try:
-    ssl._create_default_https_context = ssl._create_unverified_context
-except AttributeError:
-    pass
+# Certificados de confianza para descargar los modelos de OCR: el Python de python.org en macOS no trae
+# las CA del sistema. Se usan las de certifi; la verificación TLS sigue activa.
+import certifi
+os.environ.setdefault("SSL_CERT_FILE", certifi.where())
 
 # Soporte PDF e Imágenes (OCR)
 try:
