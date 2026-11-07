@@ -49,3 +49,19 @@ build/
 *.svg
 *.json
 *.csv
+
+# Código privado de clientes (repositorio público)
+Nuevos desarrollos para Argentina/
+
+# Salidas de la app y llaves de reversión: pueden contener datos personales
+Anonimizados/*
+!Anonimizados/.gitkeep
+Seudonimizados/*
+!Seudonimizados/.gitkeep
+Llaves/
+*.key
+*.lvkey
+
+# Documentos internos: auditoría de seguridad y fichas con contactos de clientes
+AUDITORÍA DE SEGURIDAD*.md
+ficha-relevamiento-*
