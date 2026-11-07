@@ -71,9 +71,12 @@ from app_offline import (
     ejecutar_anonimizacion_real_lotes,
     revertir_anonimizacion,
     ejecutar_reversion_archivo,
+    actualizar_rutas_idioma,
+    IdiomaNoSoportadoError,
     CARPETA_ENTRADA, 
     CARPETA_SALIDA_DEFECTO,
     CARPETA_SALIDA_ANONIMIZADA,
+    CARPETA_RESTAURADOS,
     CARPETA_PROCESADOS,
     cargar_diccionario_corporativo,
     RUTA_DICCIONARIO
@@ -331,10 +334,13 @@ async def main(page: ft.Page):
         page.update()
 
         try:
-            ejecutar_procesamiento_lotes(carpeta_salida=carpeta_salida_configurada)
+            ejecutar_procesamiento_lotes(carpeta_salida=carpeta_salida_configurada, archivo_especifico=fname)
             ultimo_archivo_procesado = fname
             texto_estado_sanitizador.value = f"¡Éxito! Archivo {fname} sanitizado y resguardado."
             texto_estado_sanitizador.color = EMERALD_GREEN
+        except IdiomaNoSoportadoError as ex_lang:
+            texto_estado_sanitizador.value = f"⚠️ {str(ex_lang)}"
+            texto_estado_sanitizador.color = CRIMSON_ERROR
         except Exception as ex:
             texto_estado_sanitizador.value = f"Error: {str(ex)}"
             texto_estado_sanitizador.color = CRIMSON_ERROR
@@ -376,10 +382,20 @@ async def main(page: ft.Page):
             ),
             ft.Row([
                 ft.ElevatedButton("Abrir", icon=ft.icons.OPEN_IN_NEW, color="#FFFFFF", bgcolor="#334155", height=28, on_click=lambda _, fn=nombre_archivo, r=ruta_f: abrir_documento_o_dialogo(fn, r)),
-                ft.ElevatedButton("Anonimizar ahora", icon=ft.icons.SHIELD, color="#FFFFFF", bgcolor=ACCENT_ORANGE if es_comp else "#475569", height=28, disabled=not es_comp, on_click=lambda _: click_procesar_individual(nombre_archivo))
+                ft.ElevatedButton("Seudonimizar ahora", icon=ft.icons.SHIELD, color="#FFFFFF", bgcolor=ACCENT_ORANGE if es_comp else "#475569", height=28, disabled=not es_comp, on_click=lambda _: click_procesar_individual(nombre_archivo))
             ], spacing=6)
         ], spacing=4)
         page.update()
+
+    def borrar_archivo_entrada(fname):
+        try:
+            ruta = os.path.join(CARPETA_ENTRADA, fname)
+            if os.path.exists(ruta):
+                os.remove(ruta)
+        except Exception as ex:
+            print(f"Error borrando archivo: {ex}")
+        refrescar_vistas_archivos()
+        refrescar_vistas_archivos_anon()
 
     # --- FUNCIONES DE REFRESCO DEFINIDAS EN ÁMBITO MAIN ---
     def refrescar_vistas_archivos():
@@ -409,13 +425,6 @@ async def main(page: ft.Page):
                 _, ext_f = os.path.splitext(f.lower())
                 es_compatible = ext_f in EXT_PERMITIDAS
 
-                def del_file(e, fname=f):
-                    try:
-                        os.remove(os.path.join(CARPETA_ENTRADA, fname))
-                        refrescar_vistas_archivos()
-                    except Exception as ex:
-                        print(f"Error borrando: {ex}")
-
                 vista_cola_archivos.controls.append(
                     ft.Container(
                         content=ft.Row([
@@ -431,8 +440,8 @@ async def main(page: ft.Page):
                                 expand=True,
                                 on_click=lambda _, fn=f: seleccionar_para_preview(fn)
                             ),
-                            ft.ElevatedButton(t("btn_anonymize_row"), icon=ft.icons.SHIELD, color="#FFFFFF", bgcolor=ACCENT_ORANGE if es_compatible else "#475569", height=26, disabled=not es_compatible, on_click=lambda _, fn=f: click_procesar_individual(fn)),
-                            ft.IconButton(ft.icons.DELETE_OUTLINED, icon_size=14, icon_color=CRIMSON_ERROR, on_click=del_file)
+                            ft.ElevatedButton(t("btn_pseudonymize_row"), icon=ft.icons.SHIELD, color="#FFFFFF", bgcolor=ACCENT_ORANGE if es_compatible else "#475569", height=26, disabled=not es_compatible, on_click=lambda _, fn=f: click_procesar_individual(fn)),
+                            ft.IconButton(ft.icons.DELETE_OUTLINED, icon_size=14, icon_color=CRIMSON_ERROR, on_click=lambda _, fn=f: borrar_archivo_entrada(fn))
                         ], alignment=ft.MainAxisAlignment.BETWEEN),
                         bgcolor="#1E293B66", padding=4, border_radius=4
                     )
@@ -509,10 +518,14 @@ async def main(page: ft.Page):
             ejecutar_anonimizacion_real_lotes(
                 carpeta_salida=carpeta_salida_anonimizada_configurada,
                 k_umbral=k_val,
-                generalizar_cuasi=cuasi_val
+                generalizar_cuasi=cuasi_val,
+                archivo_especifico=fname
             )
             texto_estado_anon.value = f"¡Éxito! Archivo {fname} anonimizado con Certificado RGPD."
             texto_estado_anon.color = EMERALD_GREEN
+        except IdiomaNoSoportadoError as ex_lang:
+            texto_estado_anon.value = f"⚠️ {str(ex_lang)}"
+            texto_estado_anon.color = CRIMSON_ERROR
         except Exception as ex:
             texto_estado_anon.value = f"Error: {str(ex)}"
             texto_estado_anon.color = CRIMSON_ERROR
@@ -585,13 +598,6 @@ async def main(page: ft.Page):
                 _, ext_f = os.path.splitext(f.lower())
                 es_compatible = ext_f in EXT_PERMITIDAS
 
-                def del_file_anon(e, fname=f):
-                    try:
-                        os.remove(os.path.join(CARPETA_ENTRADA, fname))
-                        refrescar_vistas_archivos_anon()
-                    except Exception as ex:
-                        print(f"Error borrando: {ex}")
-
                 vista_cola_archivos_anon.controls.append(
                     ft.Container(
                         content=ft.Row([
@@ -608,7 +614,7 @@ async def main(page: ft.Page):
                                 on_click=lambda _, fn=f: seleccionar_para_preview_anon(fn)
                             ),
                             ft.ElevatedButton(t("btn_anonymize_row"), icon=ft.icons.VERIFIED_USER, color="#FFFFFF", bgcolor=EMERALD_GREEN if es_compatible else "#475569", height=26, disabled=not es_compatible, on_click=lambda _, fn=f: click_procesar_individual_anon(fn)),
-                            ft.IconButton(ft.icons.DELETE_OUTLINED, icon_size=14, icon_color=CRIMSON_ERROR, on_click=del_file_anon)
+                            ft.IconButton(ft.icons.DELETE_OUTLINED, icon_size=14, icon_color=CRIMSON_ERROR, on_click=lambda _, fn=f: borrar_archivo_entrada(fn))
                         ], alignment=ft.MainAxisAlignment.BETWEEN),
                         bgcolor="#1E293B66", padding=4, border_radius=4
                     )
@@ -737,6 +743,7 @@ async def main(page: ft.Page):
                     elif hasattr(f, "path") and f.path and os.path.exists(f.path):
                         shutil.copy(f.path, dest)
                 refrescar_vistas_archivos()
+                refrescar_vistas_archivos_anon()
                 page.update()
         except Exception as ex:
             print(f"Error pick_files documentos: {ex}")
@@ -814,7 +821,7 @@ async def main(page: ft.Page):
                     except Exception:
                         txt_cargado = f"Documento cargado: {f.name}"
                 else:
-                    txt_cargado = f"📄 Archivo estructurado {ext.upper()} listo para desanonimizar: {f.name}"
+                    txt_cargado = f"📄 Archivo estructurado {ext.upper()} listo para des-seudonimizar: {f.name}"
 
                 tf_texto_anonimizado.value = txt_cargado
                 txt_info_doc_traduccion.value = f"📄 Archivo cargado: {f.name}"
@@ -892,6 +899,16 @@ async def main(page: ft.Page):
 
     # --- INTERFAZ PRINCIPAL SUITE LIA VAULT ---
     def cargar_interfaz_principal():
+        nonlocal carpeta_salida_configurada, carpeta_salida_anonimizada_configurada
+        carpeta_salida_configurada = os.path.abspath(CARPETA_SALIDA_DEFECTO)
+        carpeta_salida_anonimizada_configurada = os.path.abspath(CARPETA_SALIDA_ANONIMIZADA)
+
+        # Re-registrar servicio FilePicker en caso de reconstrucción del árbol
+        try:
+            page._services.register_service(global_file_picker)
+        except Exception:
+            pass
+
         lang_curr = get_current_language()
         logo_img = ft.Image(src=f"data:image/svg+xml;base64,{LOGO_BASE64}", width=44, height=44, fit="contain")
         
@@ -939,6 +956,7 @@ async def main(page: ft.Page):
         def toggle_language(e):
             nuevo_lang = "en" if get_current_language() == "es" else "es"
             set_current_language(nuevo_lang)
+            actualizar_rutas_idioma(nuevo_lang)
             page.clean()
             cargar_interfaz_principal()
             page.update()
@@ -1311,11 +1329,15 @@ async def main(page: ft.Page):
         btn_procesar_lote.on_click = lambda _: click_procesar_lote()
 
         def limpiar_todo_cola():
-            for f in os.listdir(CARPETA_ENTRADA):
-                r = os.path.join(CARPETA_ENTRADA, f)
-                if os.path.isfile(r):
-                    os.remove(r)
+            try:
+                for f in os.listdir(CARPETA_ENTRADA):
+                    r = os.path.join(CARPETA_ENTRADA, f)
+                    if os.path.isfile(r):
+                        os.remove(r)
+            except Exception as ex:
+                print(f"Error limpiando cola: {ex}")
             refrescar_vistas_archivos()
+            refrescar_vistas_archivos_anon()
 
         panel_sanitizador = ft.Column([
             grid_sanitizador_superior,
@@ -1422,7 +1444,7 @@ async def main(page: ft.Page):
 
             try:
                 cant = ejecutar_anonimizacion_real_lotes(
-                    carpeta_salida=CARPETA_SALIDA_ANONIMIZADA,
+                    carpeta_salida=carpeta_salida_anonimizada_configurada,
                     k_umbral=k_val,
                     generalizar_cuasi=cuasi_val
                 )
@@ -1433,6 +1455,7 @@ async def main(page: ft.Page):
                 texto_estado_anon.color = CRIMSON_ERROR
 
             barra_progreso_anon.visible = False
+            refrescar_vistas_archivos()
             refrescar_vistas_archivos_anon()
 
             try:
@@ -1452,30 +1475,6 @@ async def main(page: ft.Page):
         # ==========================================
         # SECCIÓN 2: TRADUCCIÓN INVERSA INTELIGENTE
         # ==========================================
-        def ejecutar_reversion_inteligente(e):
-            txt_anon = tf_texto_anonimizado.value or ""
-            doc_sel = dd_archivo_origen_key.value
-
-            if not txt_anon:
-                tf_texto_restaurado.value = "⚠️ Por favor pegue la respuesta o texto generado por la IA."
-                page.update()
-                return
-
-            if not doc_sel:
-                tf_texto_restaurado.value = "⚠️ Por favor seleccione el documento de origen en el desplegable superior."
-                page.update()
-                return
-
-            k1 = os.path.join(carpeta_salida_configurada, f"{doc_sel}.key")
-            k2 = os.path.join(carpeta_salida_configurada, f"{doc_sel}.reverse.key")
-            ruta_k = k1 if os.path.exists(k1) else (k2 if os.path.exists(k2) else None)
-
-            if not ruta_k:
-                for f in os.listdir(carpeta_salida_configurada):
-                    if f.startswith(doc_sel) and f.endswith(".key"):
-                        ruta_k = os.path.join(carpeta_salida_configurada, f)
-                        break
-
         def ejecutar_reversion_inteligente(e):
             nonlocal mapa_key_cargado_traduccion, archivo_anonimizado_traduccion_path
             doc_sel = dd_archivo_origen_key.value
@@ -1517,11 +1516,11 @@ async def main(page: ft.Page):
                             with open(ruta_restaurada, "r", encoding="utf-8", errors="ignore") as f_in:
                                 tf_texto_restaurado.value = f_in.read(3000)
                         except Exception:
-                            tf_texto_restaurado.value = f"✅ Archivo desanonimizado guardado en: {ruta_restaurada}"
+                            tf_texto_restaurado.value = f"✅ Archivo des-seudonimizado guardado en: {ruta_restaurada}"
                     else:
-                        tf_texto_restaurado.value = f"✅ Documento {ext_res.upper()} desanonimizado exitosamente conservando formato nativo:\n{ruta_restaurada}"
+                        tf_texto_restaurado.value = f"✅ Documento {ext_res.upper()} des-seudonimizado exitosamente conservando formato nativo:\n{ruta_restaurada}"
 
-                    txt_info_key.value = f"✅ Llave aplicada exitosamente ({len(mapa_k)} términos desanonimizados). Guardado como {nombre_res}."
+                    txt_info_key.value = f"✅ Llave aplicada exitosamente ({len(mapa_k)} términos des-seudonimizados). Guardado como {nombre_res}."
                     txt_info_key.color = EMERALD_GREEN
                     
                     abrir_documento_o_dialogo(nombre_res, ruta_restaurada)
@@ -1529,11 +1528,11 @@ async def main(page: ft.Page):
                     txt_anon = tf_texto_anonimizado.value or ""
                     res = revertir_anonimizacion(txt_anon, mapa_k)
                     tf_texto_restaurado.value = res
-                    txt_info_key.value = f"✅ Llave aplicada exitosamente ({len(mapa_k)} términos desanonimizados)."
+                    txt_info_key.value = f"✅ Llave aplicada exitosamente ({len(mapa_k)} términos des-seudonimizados)."
                     txt_info_key.color = EMERALD_GREEN
                 page.update()
             except Exception as ex:
-                tf_texto_restaurado.value = f"Error al procesar la desanonimización: {ex}"
+                tf_texto_restaurado.value = f"Error al procesar la des-seudonimización: {ex}"
                 page.update()
 
         def guardar_resultado_restaurado(e):
@@ -1552,7 +1551,7 @@ async def main(page: ft.Page):
 
             if archivo_anonimizado_traduccion_path and os.path.exists(archivo_anonimizado_traduccion_path):
                 nombre_b, ext = os.path.splitext(os.path.basename(archivo_anonimizado_traduccion_path))
-                target = os.path.join(os.path.dirname(archivo_anonimizado_traduccion_path), f"{nombre_b}_restaurado{ext}")
+                target = os.path.join(CARPETA_RESTAURADOS, f"{nombre_b}_restaurado{ext}")
                 if os.path.exists(target):
                     abrir_documento_o_dialogo(os.path.basename(target), target)
                     return
@@ -1567,7 +1566,7 @@ async def main(page: ft.Page):
                 elif dd_archivo_origen_key.value:
                     nombre_base_out = f"{os.path.splitext(dd_archivo_origen_key.value)[0]}_restaurado"
 
-                dest = os.path.join(CARPETA_ENTRADA, f"{nombre_base_out}{ext_final}")
+                dest = os.path.join(CARPETA_RESTAURADOS, f"{nombre_base_out}{ext_final}")
                 with open(dest, "w", encoding="utf-8") as f_out:
                     f_out.write(tf_texto_restaurado.value)
                 abrir_documento_o_dialogo(os.path.basename(dest), dest)
@@ -1594,7 +1593,7 @@ async def main(page: ft.Page):
                     ft.Icon(ft.icons.SWAP_HORIZ, color=ACCENT_ORANGE, size=22),
                     ft.Column([
                         ft.Text(t("reversion_card_title"), size=17, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                        ft.Text(f"Carpeta / Keys: {carpeta_salida_configurada}", size=11, color=TEXT_MUTED)
+                        ft.Text(f"Carpeta: {CARPETA_RESTAURADOS}", size=11, color=TEXT_MUTED)
                     ], spacing=2)
                 ], spacing=8),
                 ft.IconButton(
@@ -1602,8 +1601,8 @@ async def main(page: ft.Page):
                     icon_size=20,
                     disabled=ES_DOCKER,
                     icon_color=TEXT_MUTED if ES_DOCKER else "#FFFFFF",
-                    tooltip=t("sanitizer_tooltip_folder"),
-                    on_click=lambda _: abrir_local(carpeta_salida_configurada)
+                    tooltip=t("reversion_tooltip_folder"),
+                    on_click=lambda _: abrir_local(CARPETA_RESTAURADOS)
                 )
             ], alignment=ft.MainAxisAlignment.BETWEEN),
             padding=ft.Padding(bottom=4)

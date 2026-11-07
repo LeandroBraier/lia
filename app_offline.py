@@ -8,9 +8,20 @@ import os
 import re
 import json
 import shutil
-import pandas as pd
-from docx import Document
-import openpyxl
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
+
+try:
+    from docx import Document
+except ImportError:
+    Document = None
+
+try:
+    import openpyxl
+except ImportError:
+    openpyxl = None
 
 # Componentes de Microsoft Presidio
 try:
@@ -19,6 +30,8 @@ try:
     from presidio_anonymizer import AnonymizerEngine
     from presidio_anonymizer.entities import OperatorConfig
 except ImportError:
+    class _MockRegistry:
+        def add_recognizer(self, *args, **kwargs): pass
     class NlpEngineProvider:
         def __init__(self, **kwargs): pass
         def create_engine(self): return None
@@ -27,7 +40,9 @@ except ImportError:
     class PatternRecognizer:
         def __init__(self, **kwargs): pass
     class AnalyzerEngine:
-        def __init__(self, **kwargs): pass
+        def __init__(self, **kwargs):
+            self.registry = _MockRegistry()
+            self.supported_languages = kwargs.get('supported_languages', ['es', 'en'])
         def analyze(self, **kwargs): return []
     class AnonymizerEngine:
         def anonymize(self, **kwargs):
@@ -56,65 +71,208 @@ except ImportError:
     cv2 = None
     Image = None
 
-# 1. Configuración de rutas corporativas
-# Detectar si estamos en un sistema de solo lectura (ej: DMG montado en macOS)
+# 1. Configuración de rutas corporativas y soporte multiidioma
 _base_dir = os.path.dirname(os.path.abspath(__file__))
 if not os.access(_base_dir, os.W_OK) or _base_dir.startswith("/Volumes/"):
-    # Sistema de solo lectura: usar carpeta en el Home del usuario
     _base_dir = os.path.join(os.path.expanduser("~"), "LiaVault")
 
-CARPETA_ENTRADA = os.path.join(_base_dir, "entrada")
-CARPETA_SALIDA_DEFECTO = os.path.join(_base_dir, "Archivos seguros de Checkpoint Ley IA")
-CARPETA_SALIDA_ANONIMIZADA = os.path.join(_base_dir, "Archivos anonimizados RGPD")
-CARPETA_SALIDA = CARPETA_SALIDA_DEFECTO
-CARPETA_PROCESADOS = os.path.join(_base_dir, "procesados")
-CARPETA_CONFIG = os.path.join(_base_dir, "config")
-RUTA_DICCIONARIO = os.path.join(CARPETA_CONFIG, "diccionario_exclusiones.txt")
+NOMBRES_CARPETAS = {
+    "es": {
+        "entrada": "Entrada",
+        "seudonimizados": "Seudonimizados",
+        "anonimizados": "Anonimizados",
+        "restaurados": "Restaurados",
+        "procesados": "procesados",
+        "config": "config"
+    },
+    "en": {
+        "entrada": "Input",
+        "seudonimizados": "Pseudonymized",
+        "anonimizados": "Anonymized",
+        "restaurados": "Restored",
+        "procesados": "processed",
+        "config": "config"
+    }
+}
 
-try:
-    os.makedirs(CARPETA_ENTRADA, exist_ok=True)
-    os.makedirs(CARPETA_SALIDA_DEFECTO, exist_ok=True)
-    os.makedirs(CARPETA_SALIDA_ANONIMIZADA, exist_ok=True)
-    os.makedirs(CARPETA_PROCESADOS, exist_ok=True)
-    os.makedirs(CARPETA_CONFIG, exist_ok=True)
-except Exception as ex_mk:
-    print(f"⚠️ Aviso al preparar directorios: {ex_mk}")
+def _mover_contenido_carpeta(origen, destino):
+    """Mueve de forma segura el contenido de origen a destino."""
+    if not os.path.exists(origen) or os.path.abspath(origen) == os.path.abspath(destino):
+        return
+    os.makedirs(destino, exist_ok=True)
+    try:
+        for item in os.listdir(origen):
+            s = os.path.join(origen, item)
+            d = os.path.join(destino, item)
+            try:
+                if not os.path.exists(d):
+                    shutil.move(s, d)
+                else:
+                    if os.path.isfile(s):
+                        shutil.copy2(s, d)
+                        os.remove(s)
+            except Exception as e_mv:
+                print(f"Aviso migrando {s} -> {d}: {e_mv}")
+        if not os.listdir(origen):
+            os.rmdir(origen)
+    except Exception as e_dir:
+        print(f"Aviso en limpieza de directorio {origen}: {e_dir}")
+
+def actualizar_rutas_idioma(lang="es"):
+    """Actualiza y migra las carpetas según el idioma activo (ES o EN)."""
+    global CARPETA_ENTRADA, CARPETA_SALIDA_DEFECTO, CARPETA_SALIDA_ANONIMIZADA, CARPETA_SALIDA
+    global CARPETA_RESTAURADOS, CARPETA_PROCESADOS, CARPETA_CONFIG, RUTA_DICCIONARIO
+
+    idioma = "en" if lang.lower().startswith("en") else "es"
+    idioma_previo = "es" if idioma == "en" else "en"
+    cfg = NOMBRES_CARPETAS[idioma]
+    cfg_prev = NOMBRES_CARPETAS[idioma_previo]
+
+    target_entrada = os.path.join(_base_dir, cfg["entrada"])
+    target_seudonimizados = os.path.join(_base_dir, cfg["seudonimizados"])
+    target_anonimizados = os.path.join(_base_dir, cfg["anonimizados"])
+    target_restaurados = os.path.join(_base_dir, cfg["restaurados"])
+    target_procesados = os.path.join(_base_dir, cfg["procesados"])
+    target_config = os.path.join(_base_dir, cfg["config"])
+
+    # 1. Migración desde carpetas Legacy
+    legacy_seudonimizados = os.path.join(_base_dir, "Archivos seguros de Checkpoint Ley IA")
+    legacy_anonimizados = os.path.join(_base_dir, "Archivos anonimizados RGPD")
+    legacy_entrada_min = os.path.join(_base_dir, "entrada")
+
+    if os.path.exists(legacy_seudonimizados):
+        _mover_contenido_carpeta(legacy_seudonimizados, target_seudonimizados)
+    if os.path.exists(legacy_anonimizados):
+        _mover_contenido_carpeta(legacy_anonimizados, target_anonimizados)
+    if os.path.exists(legacy_entrada_min) and os.path.abspath(legacy_entrada_min) != os.path.abspath(target_entrada):
+        _mover_contenido_carpeta(legacy_entrada_min, target_entrada)
+
+    # 2. Migración entre idiomas si cambiamos de idioma
+    prev_entrada = os.path.join(_base_dir, cfg_prev["entrada"])
+    prev_seudonimizados = os.path.join(_base_dir, cfg_prev["seudonimizados"])
+    prev_anonimizados = os.path.join(_base_dir, cfg_prev["anonimizados"])
+    prev_restaurados = os.path.join(_base_dir, cfg_prev["restaurados"])
+    prev_procesados = os.path.join(_base_dir, cfg_prev["procesados"])
+
+    if os.path.exists(prev_entrada) and os.path.abspath(prev_entrada) != os.path.abspath(target_entrada):
+        _mover_contenido_carpeta(prev_entrada, target_entrada)
+    if os.path.exists(prev_seudonimizados) and os.path.abspath(prev_seudonimizados) != os.path.abspath(target_seudonimizados):
+        _mover_contenido_carpeta(prev_seudonimizados, target_seudonimizados)
+    if os.path.exists(prev_anonimizados) and os.path.abspath(prev_anonimizados) != os.path.abspath(target_anonimizados):
+        _mover_contenido_carpeta(prev_anonimizados, target_anonimizados)
+    if os.path.exists(prev_restaurados) and os.path.abspath(prev_restaurados) != os.path.abspath(target_restaurados):
+        _mover_contenido_carpeta(prev_restaurados, target_restaurados)
+    if os.path.exists(prev_procesados) and os.path.abspath(prev_procesados) != os.path.abspath(target_procesados):
+        _mover_contenido_carpeta(prev_procesados, target_procesados)
+
+    # 3. Asignar variables globales y asegurar existencia
+    CARPETA_ENTRADA = target_entrada
+    CARPETA_SALIDA_DEFECTO = target_seudonimizados
+    CARPETA_SALIDA_ANONIMIZADA = target_anonimizados
+    CARPETA_SALIDA = CARPETA_SALIDA_DEFECTO
+    CARPETA_RESTAURADOS = target_restaurados
+    CARPETA_PROCESADOS = target_procesados
+    CARPETA_CONFIG = target_config
+    RUTA_DICCIONARIO = os.path.join(CARPETA_CONFIG, "diccionario_exclusiones.txt")
+
+    for p in [CARPETA_ENTRADA, CARPETA_SALIDA_DEFECTO, CARPETA_SALIDA_ANONIMIZADA, CARPETA_RESTAURADOS, CARPETA_PROCESADOS, CARPETA_CONFIG]:
+        os.makedirs(p, exist_ok=True)
 
     if not os.path.exists(RUTA_DICCIONARIO):
-        with open(RUTA_DICCIONARIO, "w", encoding="utf-8") as f:
-            f.write("# Lista de palabras prohibidas de la empresa (un término por línea)\n")
-            f.write("# Las coincidencias se reemplazarán por [TERMINO_CONFIDENCIAL]\n")
-            f.write("Proyecto Halcon\n")
-            f.write("Adquisición Alfa\n")
-            f.write("Formula-X7\n")
-except OSError:
-    pass
+        try:
+            with open(RUTA_DICCIONARIO, "w", encoding="utf-8") as f:
+                f.write("# Lista de palabras prohibidas de la empresa (un término por línea)\n")
+                f.write("# Las coincidencias se reemplazarán por [TERMINO_CONFIDENCIAL]\n")
+                f.write("Proyecto Halcon\n")
+                f.write("Adquisición Alfa\n")
+                f.write("Formula-X7\n")
+        except Exception:
+            pass
 
+    return {
+        "entrada": CARPETA_ENTRADA,
+        "seudonimizados": CARPETA_SALIDA_DEFECTO,
+        "anonimizados": CARPETA_SALIDA_ANONIMIZADA,
+        "restaurados": CARPETA_RESTAURADOS,
+        "procesados": CARPETA_PROCESADOS,
+        "config": CARPETA_CONFIG
+    }
 
-MAPA_ETIQUETAS = {
-    "PERSON": "[PERSONA]",
-    "LOCATION": "[UBICACION]",
-    "ORGANIZATION": "[ORGANIZACION]",
-    "EMAIL_ADDRESS": "[EMAIL]",
-    "PHONE_NUMBER": "[TELEFONO]",
-    "CREDIT_CARD": "[TARJETA]"
-}
+# Inicializar carpetas al idioma por defecto
+try:
+    from i18n import get_current_language
+    _lang_init = get_current_language()
+except Exception:
+    _lang_init = "es"
+
+actualizar_rutas_idioma(_lang_init)
+
 
 # 2. Inicializar IA local y Lector OCR
 print("⏳ Cargando modelos e IA local de Lia Vault...")
 try:
+    models_config = [{"lang_code": "es", "model_name": "es_core_news_sm"}]
+    supported_langs = ["es"]
+    try:
+        import spacy
+        if spacy.util.is_package("en_core_web_sm"):
+            models_config.append({"lang_code": "en", "model_name": "en_core_web_sm"})
+            supported_langs.append("en")
+    except Exception:
+        pass
+
     nlp_config = {
         "nlp_engine_name": "spacy",
-        "models": [{"lang_code": "es", "model_name": "es_core_news_sm"}]
+        "models": models_config
     }
     provider = NlpEngineProvider(nlp_configuration=nlp_config)
     nlp_engine = provider.create_engine()
-    analyzer = AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=["es"]) if nlp_engine else AnalyzerEngine(supported_languages=["es"])
+    analyzer = AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=supported_langs) if nlp_engine else AnalyzerEngine(supported_languages=supported_langs)
     anonymizer = AnonymizerEngine()
     
+    # 1. Tarjetas de crédito
     patron_tarjeta = Pattern(name="tarjeta_patron", regex=r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b", score=0.85)
-    reconocedor_tarjetas = PatternRecognizer(supported_entity="CREDIT_CARD", supported_language="es", patterns=[patron_tarjeta])
-    analyzer.registry.add_recognizer(reconocedor_tarjetas)
+    reconocedor_tarjetas_es = PatternRecognizer(supported_entity="CREDIT_CARD", supported_language="es", patterns=[patron_tarjeta])
+    analyzer.registry.add_recognizer(reconocedor_tarjetas_es)
+    if "en" in supported_langs:
+        reconocedor_tarjetas_en = PatternRecognizer(supported_entity="CREDIT_CARD", supported_language="en", patterns=[patron_tarjeta])
+        analyzer.registry.add_recognizer(reconocedor_tarjetas_en)
+
+    # 2. Teléfonos en español / internacionales (móviles, fijos, 9 dígitos, con prefijos)
+    patron_tel_es = Pattern(
+        name="telefono_es_patron",
+        regex=r"(?:\+34\s*|0034\s*)?(?:[6789]\d{2}[\s.-]?\d{3}[\s.-]?\d{3}|[6789]\d{2}[\s.-]?\d{2}[\s.-]?\d{2}[\s.-]?\d{2}|[6789]\d{1}[\s.-]?\d{3}[\s.-]?\d{2}[\s.-]?\d{2}|[6789]\d{8}|\b(?:\+?\d{1,4}[-.\s]?)?(?:\(?\d{2,5}\)?[-.\s]?)?\d{3,4}[-.\s]?\d{3,4}\b)",
+        score=0.85
+    )
+    reconocedor_telefonos_es = PatternRecognizer(supported_entity="PHONE_NUMBER", supported_language="es", patterns=[patron_tel_es])
+    analyzer.registry.add_recognizer(reconocedor_telefonos_es)
+    if "en" in supported_langs:
+        reconocedor_telefonos_en = PatternRecognizer(supported_entity="PHONE_NUMBER", supported_language="en", patterns=[patron_tel_es])
+        analyzer.registry.add_recognizer(reconocedor_telefonos_en)
+
+    # 3. Escuelas, Colegios, Universidades e Instituciones
+    patron_instituciones = Pattern(
+        name="institucion_educativa_patron",
+        regex=r"\b(?:Colegio|Escuela|Instituto|CEIP|IES|Universidad|Facultad|Conservatorio|Hospital|Clínica|Fundación|Centro\s+Educativo|Guardería|Jardín\s+de\s+Infantes|University|College|School|Academy|Institute|Hospital|Clinic)\s+(?:N[º°]?\s*\d+\s+)?(?:de\s+|del\s+|la\s+|las\s+|los\s+|San\s+|Santa\s+|Nuestra\s+Señora\s+de\s+|Don\s+|Doña\s+|of\s+|for\s+)?[A-ZÁÉÍÓÚÑ][a-záéíóúñA-ZÁÉÍÓÚÑ0-9\s.-]+?(?=\s*[,;.\n]|\s+y\b|\s+con\b|\s+en\b|\s+de\b|\s+del\b|\s+and\b|\s+with\b|\s+in\b|$)",
+        score=0.90
+    )
+    reconocedor_instituciones_es = PatternRecognizer(supported_entity="ORGANIZATION", supported_language="es", patterns=[patron_instituciones])
+    analyzer.registry.add_recognizer(reconocedor_instituciones_es)
+    if "en" in supported_langs:
+        reconocedor_instituciones_en = PatternRecognizer(supported_entity="ORGANIZATION", supported_language="en", patterns=[patron_instituciones])
+        analyzer.registry.add_recognizer(reconocedor_instituciones_en)
+
+    # 4. Nombres propios comunes (para capturar nombres aislados)
+    patron_nombres = Pattern(
+        name="nombres_propios_patron",
+        regex=r"\b(?:Jessica|Jesica|Yessica|Jennifer|Yenifer|Kevin|Brian|Brayan|Jonathan|Jonatan|Nicole|Dylan|Axel|Maite|Nahuel|Thiago|Tiago|Camila|Valeria|Antonella|Agustina|Romina|Florencia|Gisela|Giselle|Micaela|Yamila|Facundo|Mariano|Emiliano|Gonzalo|Esteban|Federico|Hernán|Hernan|Damián|Damian|Ezequiel|Gerónimo|Geronimo|Lautaro|Bautista|Santino|Joaquín|Joaquin|Valentín|Valentin|Ignacio|Lisandro|Agustín|Agustin|Álvaro|Alvaro|Rodrigo|Alfonso|Inés|Ines|Pilar|Teresa|Mercedes|Dolores|Montserrat|Rocío|Rocio|Macarena|Cristina|Susana|Marta|Miriam|Irene|Silvia|Raquel|Mónica|Monica|Natalia|Lorena|Vanesa|Vanessa|Patricia|Beatriz|Guillermo|Manuel|Pablo|Sergio|Rubén|Ruben|Adrián|Adrian|Iván|Ivan|Raúl|Raul|Óscar|Oscar|David|Marcos|Hugo|Lucas|Daniel|Mario|Víctor|Victor|Héctor|Hector|Félix|Felix|César|Cesar|Arturo|Ernesto|Ramiro|Mauricio|Fabián|Fabian|Claudio|Marcelo|Gustavo|Eduardo|Ricardo|Roberto|Fernando|Francisco|José|Jose|Antonio|Luis|Jorge|Miguel|Ángel|Angel|Pedro|Jesús|Jesus|Alberto|Alejandro|Javier|Carlos|Juan|Ana|Lucía|Lucia|María|Maria|Laura|Sofía|Sofia|Elena|Carmen|Paula|Andrea|Claudia|Sara|Julia|Alba|Noelia|Sonia|Alicia|Eva|Marina|Nerea|Belén|Belen|Gloria|Victoria|Carolina|Clara|Daniela|Gabriela|John|Michael|James|Robert|William|David|Richard|Charles|Joseph|Thomas|Christopher|Daniel|Paul|Mark|Donald|George|Kenneth|Steven|Edward|Brian|Ronald|Anthony|Kevin|Jason|Matthew|Gary|Timothy|Jose|Larry|Jeffrey|Frank|Scott|Eric|Stephen|Andrew|Raymond|Gregory|Joshua|Jerry|Dennis|Walter|Patrick|Peter|Harold|Douglas|Henry|Carl|Arthur|Ryan|Roger|Joe|Juan|Jack|Albert|Jonathan|Justin|Terry|Gerald|Keith|Samuel|Willie|Ralph|Lawrence|Nicholas|Roy|Benjamin|Bruce|Brandon|Adam|Harry|Fred|Wayne|Billy|Steve|Louis|Jeremy|Aaron|Randy|Howard|Eugene|Carlos|Russell|Bobby|Victor|Martin|Ernest|Phillip|Todd|Jesse|Craig|Alan|Shawn|Clarence|Sean|Philip|Chris|Johnny|Earl|Jimmy|Antonio|Mary|Patricia|Jennifer|Linda|Elizabeth|Barbara|Susan|Jessica|Sarah|Karen|Nancy|Lisa|Betty|Margaret|Sandra|Ashley|Kimberly|Emily|Donna|Michelle|Dorothy|Carol|Amanda|Melissa|Deborah|Stephanie|Rebecca|Sharon|Laura|Cynthia|Kathleen|Amy|Shirley|Angela|Helen|Anna|Brenda|Pamela|Nicole|Emma|Samantha|Katherine|Christine|Debra|Rachel|Catherine|Carolyn|Janet|Ruth|Maria|Heather|Diane|Virginia|Julie|Joyce|Victoria|Olivia|Kelly|Christina|Lauren|Joan|Evelyn|Judith|Megan|Cheryl|Andrea|Hannah|Martha|Jacqueline|Frances|Gloria|Ann|Teresa|Kathryn|Sara|Janice|Jean|Alice|Madison|Doris|Abigail|Julia|Judy|Grace|Denise|Amber|Marilyn|Beverly|Danielle|Theresa|Sophia|Marie|Diana|Brittany|Natalie|Isabella|Charlotte|Rose|Alexis|Kayla)\b",
+        score=0.90
+    )
+    reconocedor_nombres_es = PatternRecognizer(supported_entity="PERSON", supported_language="es", patterns=[patron_nombres])
+    analyzer.registry.add_recognizer(reconocedor_nombres_es)
+    if "en" in supported_langs:
+        reconocedor_nombres_en = PatternRecognizer(supported_entity="PERSON", supported_language="en", patterns=[patron_nombres])
+        analyzer.registry.add_recognizer(reconocedor_nombres_en)
 except Exception as e:
     print(f"⚠️ Alerta: Presidio o spaCy no cargados completamente: {e}")
     analyzer = None
@@ -141,44 +299,6 @@ def cargar_diccionario_corporativo():
     return terminos
 
 
-SOFTWARE_ALLOWLIST = {
-    'chatgpt', 'copilot', 'gemini', 'claude', 'llama', 'gpt', 'gpt-4', 'gpt-3.5',
-    'windows', 'office', 'excel', 'word', 'powerpoint', 'google', 'microsoft',
-    'python', 'docker', 'react', 'vite', 'node', 'express', 'spacy', 'presidio',
-    'easyocr', 'pdf', 'csv', 'txt', 'docx', 'xlsx', 'json', 'html', 'css', 'javascript',
-    'typescript', 'flet', 'github', 'gitlab', 'slack', 'teams', 'zoom',
-    'meeting', 'inteligencia', 'artificial', 'bueno', 'buenos', 'días', 'hola',
-    'gracias', 'perdón', 'claro', 'exacto', 'así', 'igual', 'cualquier', 'esa',
-    'uno', 'vale', 'ah', 'mirá', 'mira', 'acá', 'después', 'grabación',
-    'aparentemente', 'socios', 'pymes', 'tecnologías', 'verdadero', 'consciente',
-    'julio', 'agosto', 'unión europea', 'barcelona', 'view', 'notes', 'cuál', 'quién',
-    # Términos genéricos corporativos / estadísticos
-    'empresa', 'empresas', 'compañía', 'compania', 'entidad', 'cliente', 'clientes',
-    'sociedad', 'director', 'directora', 'gerente', 'jefe', 'jefa', 'empleado', 'empleada',
-    'usuario', 'sistema', 'servicio', 'data', 'año', 'unidad', 'número', 'valor', 'concepto',
-    'estado', 'tipo', 'hombres', 'mujeres', 'alumnos', 'alumnas', 'matriculados', 'matriculadas',
-    'total', 'otros', 'provisional', 'definitivo', 'territorio', 'código',
-    'primer', 'segundo', 'curso', 'ciclo', 'formación', 'profesional', 'básica',
-    'centros', 'escolares', 'formativos', 'dato', 'nacional',
-    'rol', 'ajuste', 'score', 'rating', 'icp', 'lookalikes', 'lista',
-    # Términos legales y estructurales de NDAs para evitar falsos positivos
-    'apoderado', 'apoderada', 'titular', 'presidente', 'presidenta', 'vicepresidente', 
-    'vicepresidenta', 'secretario', 'secretaria', 'vocal', 'administrador', 'administradora', 
-    'socio', 'socia', 'contratante', 'proveedora', 'receptora', 'divulgadora', 'parte', 'partes', 
-    'objeto', 'definiciones', 'excepciones', 'devolución', 'destrucción', 'incumplimiento', 
-    'duración', 'jurisdicción', 'anexo', 'anexos', 'acuerdo', 'contrato', 'convenio', 'reunidos', 
-    'exclusiones', 'primera', 'segunda', 'tercera', 'cuarta', 'quinta', 'sexta', 'séptima', 
-    'octava', 'novena', 'décima', 'primero', 'segundo', 'tercero', 'cuarto', 'quinto', 'sexto', 
-    'séptimo', 'octavo', 'noveno', 'décimo', 'información', 'confidencial', 'confidencialidad'
-}
-
-SPANISH_NAMES = [
-    "Carlos Mendoza", "Santiago", "Alejandro Gómez", "Juan Pérez", "María Rodríguez",
-    "Laura Martínez", "Andrés Felipe", "Sofía Castro", "Santiago Valencia", "Gabriela",
-    "Diego Armando", "Carlos", "Juan", "Gómez", "Mendoza", "Alejandro", "Sonia", "Beatriz",
-    "Laura", "Noelia", "Aznar", "Pedro", "Ana", "Lucía", "Javier", "Martín", "Elena", "Carmen"
-]
-
 def aplicar_diccionario_exclusiones(texto):
     if not isinstance(texto, str):
         return texto
@@ -187,6 +307,289 @@ def aplicar_diccionario_exclusiones(texto):
         patron = re.compile(re.escape(termino), re.IGNORECASE)
         texto = patron.sub("[TERMINO_CONFIDENCIAL]", texto)
     return texto
+
+
+class IdiomaNoSoportadoError(Exception):
+    """Excepción lanzada cuando el documento se encuentra en un idioma no soportado (distinto a ES y EN)."""
+    def __init__(self, idioma_detectado):
+        self.idioma_detectado = idioma_detectado
+        super().__init__(f"Este software sólo está entrenado para documentos en Español y en Inglés. Idioma detectado: '{idioma_detectado}'.")
+
+
+STOPWORDS_ES = {
+    'de', 'la', 'que', 'el', 'en', 'y', 'a', 'los', 'del', 'se', 'las', 'por', 'un', 'para', 'con', 'no', 'una',
+    'su', 'al', 'lo', 'como', 'más', 'mas', 'pero', 'sus', 'le', 'ya', 'o', 'este', 'sí', 'si', 'porque', 'esta',
+    'son', 'entre', 'está', 'esta', 'cuando', 'muy', 'sin', 'sobre', 'ser', 'tiene', 'también', 'tambien', 'me',
+    'hasta', 'hay', 'donde', 'quien', 'desde', 'todo', 'nos', 'durante', 'todos', 'uno', 'les', 'ni', 'contra',
+    'otros', 'ese', 'eso', 'ante', 'ellos', 'e', 'esto', 'mí', 'mi', 'antes', 'algunos', 'qué', 'que', 'unos',
+    'yo', 'otro', 'otras', 'otra', 'él', 'el', 'tanto', 'esa', 'estos', 'mucho', 'quienes', 'nada', 'muchos',
+    'cual', 'sea', 'poco', 'ella', 'estar', 'haber', 'estas', 'estaba', 'estamos', 'tenemos', 'encontramos'
+}
+
+STOPWORDS_EN = {
+    'the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'i', 'it', 'for', 'not', 'on', 'with', 'he',
+    'as', 'you', 'do', 'at', 'this', 'but', 'his', 'by', 'from', 'they', 'we', 'say', 'her', 'she', 'or', 'an',
+    'will', 'my', 'one', 'all', 'would', 'there', 'their', 'what', 'so', 'up', 'out', 'if', 'about', 'who',
+    'get', 'which', 'go', 'me', 'when', 'make', 'can', 'like', 'time', 'no', 'just', 'him', 'know', 'take',
+    'people', 'into', 'year', 'your', 'good', 'some', 'could', 'them', 'see', 'other', 'than', 'then', 'now',
+    'look', 'only', 'come', 'its', 'over', 'think', 'also', 'back', 'after', 'use', 'two', 'how', 'our', 'work',
+    'first', 'well', 'way', 'even', 'new', 'want', 'because', 'any', 'these', 'give', 'day', 'most', 'us',
+    'is', 'are', 'was', 'were', 'been', 'has', 'had', 'according', 'findings', 'research', 'report'
+}
+
+STOPWORDS_FR = {'le', 'la', 'les', 'de', 'du', 'des', 'un', 'une', 'et', 'est', 'en', 'que', 'qui', 'dans', 'pour', 'pas', 'sur', 'ce', 'par', 'avec', 'ne', 'au', 'aux', 'se', 'son', 'sa', 'ses', 'nous', 'vous', 'ils', 'elles', 'mais', 'ou', 'donc', 'rapport', 'été', 'ete'}
+STOPWORDS_DE = {'der', 'die', 'das', 'und', 'in', 'den', 'von', 'zu', 'dem', 'mit', 'sich', 'des', 'auf', 'für', 'ist', 'im', 'nicht', 'eine', 'ein', 'als', 'auch', 'es', 'an', 'werden', 'aus', 'er', 'hat', 'dass', 'sie', 'nach', 'wird', 'bei', 'einer', 'um', 'am', 'sind', 'bericht'}
+STOPWORDS_IT = {'il', 'la', 'le', 'i', 'gli', 'di', 'da', 'in', 'con', 'su', 'per', 'tra', 'fra', 'un', 'uno', 'una', 'è', 'e', 'che', 'non', 'si', 'del', 'della', 'dei', 'delle', 'sono', 'ma', 'come', 'anche', 'questo', 'questa', 'rapporto'}
+STOPWORDS_PT = {'o', 'a', 'os', 'as', 'de', 'do', 'da', 'dos', 'das', 'em', 'no', 'na', 'nos', 'nas', 'por', 'pelo', 'pela', 'pelos', 'pelas', 'para', 'com', 'um', 'uma', 'uns', 'umas', 'que', 'não', 'se', 'como', 'mas', 'ao', 'aos', 'à', 'às', 'este', 'esta', 'estes', 'estas', 'relatório'}
+
+
+def detectar_idioma(texto: str) -> tuple:
+    """
+    Identifica el idioma dominante y la estrategia de análisis bilingüe (ES / EN / Mixto) de forma offline.
+    Retorna: (idioma_clasificado, [idiomas_a_ejecutar_en_presidio])
+    Lanza IdiomaNoSoportadoError si el texto está en un tercer idioma dominante no soportado.
+    """
+    if not isinstance(texto, str) or not texto.strip():
+        return "es", ["es"]
+
+    palabras = re.findall(r'\b[a-záéíóúñüàèìòùâêîôûäëïöüçãõ]{2,}\b', texto.lower())
+    
+    # 1. Umbral mínimo de longitud/confianza (protección para textos cortos, numéricos o tablas)
+    if len(palabras) < 8 or len(texto.strip()) < 40:
+        idioma_def = obtener_idioma_activo()
+        return idioma_def, ["es", "en"]
+
+    c_es = sum(1 for p in palabras if p in STOPWORDS_ES)
+    c_en = sum(1 for p in palabras if p in STOPWORDS_EN)
+    c_fr = sum(1 for p in palabras if p in STOPWORDS_FR)
+    c_de = sum(1 for p in palabras if p in STOPWORDS_DE)
+    c_it = sum(1 for p in palabras if p in STOPWORDS_IT)
+    c_pt = sum(1 for p in palabras if p in STOPWORDS_PT)
+
+    total_validos = c_es + c_en + c_fr + c_de + c_it + c_pt
+
+    # Si hay muy pocas stopwords para determinar con rigor (ej. datos estructurados)
+    if total_validos < 3:
+        idioma_def = obtener_idioma_activo()
+        return idioma_def, ["es", "en"]
+
+    # 2. Rechazo duro por tercer idioma dominante
+    terceros = {"Francés": c_fr, "Alemán": c_de, "Italiano": c_it, "Portugués": c_pt}
+    max_tercero_nombre, max_tercero_count = max(terceros.items(), key=lambda x: x[1])
+
+    if max_tercero_count > (c_es + c_en) * 1.5 and (c_es + c_en) < 4:
+        raise IdiomaNoSoportadoError(max_tercero_nombre)
+
+    # 3. Documentos bilingües o con mezcla significativa ES + EN (umbral >= 15%)
+    if c_es > 0 and c_en > 0:
+        ratio_mezcla = min(c_es, c_en) / (c_es + c_en)
+        if ratio_mezcla >= 0.15:
+            return "mixto", ["es", "en"]
+
+    # 4. Idioma dominante ES o EN
+    if c_en > c_es * 1.8:
+        return "en", ["en", "es"]
+    else:
+        return "es", ["es", "en"]
+
+
+SOFTWARE_ALLOWLIST = {
+    'chatgpt', 'copilot', 'gemini', 'claude', 'llama', 'gpt', 'gpt-4', 'gpt-3.5',
+    'windows', 'office', 'excel', 'word', 'powerpoint', 'google', 'microsoft',
+    'python', 'docker', 'react', 'vite', 'node', 'express', 'spacy', 'presidio',
+    'easyocr', 'pdf', 'csv', 'txt', 'docx', 'xlsx', 'json', 'html', 'css', 'javascript',
+    'typescript', 'flet', 'github', 'gitlab', 'slack', 'teams', 'zoom',
+    'meeting', 'inteligencia', 'artificial', 'bueno', 'buenos', 'días', 'dias', 'hola',
+    'gracias', 'perdón', 'perdon', 'claro', 'exacto', 'así', 'asi', 'igual', 'cualquier', 'esa',
+    'uno', 'vale', 'ah', 'mirá', 'mira', 'acá', 'aca', 'después', 'despues', 'grabación',
+    'aparentemente', 'socios', 'pymes', 'tecnologías', 'tecnologias', 'verdadero', 'consciente',
+    'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
+    'septiembre', 'octubre', 'noviembre', 'diciembre',
+    'lunes', 'martes', 'miércoles', 'miercoles', 'jueves', 'viernes', 'sábado', 'sabado', 'domingo',
+    'unión europea', 'view', 'notes', 'cuál', 'quién',
+    # Términos estructurales, metodológicos, de negocio y tecnología (ES / EN)
+    'táctica', 'tactica', 'tácticas', 'tacticas', 'estrategia', 'estrategias', 'estratégico', 'estrategico',
+    'misión', 'mision', 'visión', 'vision', 'objetivo', 'objetivos', 'fase', 'fases', 'etapa', 'etapas',
+    'plan', 'planes', 'acción', 'accion', 'acciones', 'control', 'controles', 'riesgo', 'riesgos',
+    'impacto', 'impactos', 'alcance', 'resumen', 'introducción', 'introduccion', 'análisis', 'analisis',
+    'metodología', 'metodologia', 'técnica', 'tecnica', 'herramienta', 'herramientas', 'guía', 'guia',
+    'manual', 'manuales', 'norma', 'normas', 'política', 'politica', 'políticas', 'politicas',
+    'procedimiento', 'procedimientos', 'proceso', 'procesos', 'criterio', 'criterios',
+    'resultado', 'resultados', 'conclusión', 'conclusion', 'conclusiones', 'recomendación', 'recomendacion',
+    'nota', 'notas', 'aviso', 'avisos', 'importante', 'atención', 'atencion', 'ejemplo', 'ejemplos',
+    'caso', 'casos', 'prueba', 'pruebas', 'test', 'versión', 'version', 'formato', 'plantilla',
+    'modelo', 'estructura', 'esquema', 'diseño', 'desarrollo', 'implementación', 'implementacion',
+    'configuración', 'configuracion', 'instalación', 'instalacion', 'mantenimiento', 'soporte',
+    'servicio', 'servicios', 'sistema', 'sistemas', 'plataforma', 'aplicación', 'aplicacion',
+    'software', 'hardware', 'red', 'servidor', 'tabla', 'tablas', 'campo', 'registro', 'fila', 'columna',
+    'dato', 'datos', 'información', 'informacion', 'archivo', 'archivos', 'documento', 'documentos',
+    'carpeta', 'directorio', 'ruta', 'código', 'codigo', 'texto', 'mensaje', 'correo', 'usuario',
+    'perfil', 'rol', 'permiso', 'acceso', 'cuenta', 'equipo', 'organización', 'organizacion',
+    'empresa', 'empresas', 'compañía', 'compania', 'entidad', 'cliente', 'clientes', 'sociedad',
+    'director', 'directora', 'gerente', 'jefe', 'jefa', 'empleado', 'empleada',
+    'área', 'area', 'departamento', 'dirección', 'direccion', 'gerencia', 'jefatura', 'oficina',
+    'sede', 'sucursal', 'centro', 'unidad', 'división', 'division', 'proyecto', 'proyectos',
+    'programa', 'actividad', 'tarea', 'tareas', 'evento', 'reunión', 'reunion', 'reuniones',
+    'acta', 'informe', 'informes', 'reporte', 'reportes', 'estado', 'nivel', 'tipo', 'categoría',
+    'categorías', 'clase', 'modo', 'forma', 'medio', 'fuente', 'origen', 'destino',
+    'fecha', 'hora', 'día', 'dia', 'días', 'dias', 'mes', 'meses', 'año', 'ano', 'años', 'anos',
+    'ayer', 'hoy', 'mañana', 'manana', 'durante', 'según', 'segun', 'mediante', 'luego',
+    'primero', 'segundo', 'tercero', 'asimismo', 'además', 'ademas', 'total', 'subtotal',
+    'saldo', 'pago', 'factura', 'recibo', 'presupuesto', 'precio', 'costo', 'importe', 'valor',
+    'número', 'numero', 'cantidad', 'peso', 'tamaño', 'tamano', 'punto', 'zona', 'sector',
+    'región', 'region', 'país', 'pais', 'provincia', 'ciudad', 'municipio', 'localidad', 'barrio',
+    'distrito', 'territorio', 'hombres', 'mujeres', 'alumnos', 'alumnas', 'matriculados', 'matriculadas',
+    'llamar', 'llamada', 'enviar', 'envío', 'envio', 'consultar', 'solicitar', 'solicitud',
+    'estimado', 'estimada', 'adjunto', 'adjuntamos', 'adjunta', 'ver', 'revisar', 'notificar',
+    'informar', 'descargar', 'abrir', 'cerrar', 'copiar', 'pegar', 'guardar', 'seleccionar',
+    'subir', 'favor', 'buenas', 'tardes', 'noches', 'saludos', 'atentamente', 'cordialmente',
+    'apoderado', 'apoderada', 'titular', 'presidente', 'presidenta', 'vicepresidente', 
+    'vicepresidenta', 'vocal', 'administrador', 'administradora', 
+    'socio', 'socia', 'contratante', 'proveedora', 'receptora', 'divulgadora', 'parte', 'partes', 
+    'objeto', 'definiciones', 'excepciones', 'devolución', 'destrucción', 'incumplimiento', 
+    'duración', 'jurisdicción', 'anexo', 'anexos', 'acuerdo', 'contrato', 'convenio', 'reunidos',
+    # Vocabulario técnico, de IA, agentes y roles en inglés
+    'framework', 'frameworks', 'agent', 'agents', 'agente', 'agentes', 'flow', 'flows', 'flujo', 'flujos',
+    'pipeline', 'pipelines', 'prompt', 'prompts', 'embedding', 'embeddings', 'dataset', 'datasets',
+    'benchmark', 'benchmarks', 'link', 'links', 'enlace', 'enlaces', 'report', 'reports', 'research',
+    'researcher', 'lead', 'developer', 'engineer', 'architect', 'analyst', 'manager', 'consultant', 'auditor',
+    'overview', 'summary', 'background', 'introduction', 'findings', 'evaluation', 'table', 'content',
+    'hub', 'tech', 'stack', 'backend', 'frontend', 'database', 'security', 'privacy', 'compliance',
+    'rgpd', 'gdpr', 'hipaa', 'iso', 'api', 'rest', 'sdk', 'llm', 'nlp', 'ner', 'ai'
+}
+
+ROLES_GENERICOS = {
+    'researcher', 'lead researcher', 'developer', 'software developer', 'engineer', 'software engineer',
+    'analyst', 'data analyst', 'manager', 'project manager', 'director', 'managing director', 'consultant',
+    'auditor', 'architect', 'designer', 'tester', 'investigador', 'desarrollador', 'ingeniero', 'analista',
+    'gerente', 'consultor', 'abogado', 'medico', 'médico', 'doctor', 'doctora', 'interlocutor', 'usuario',
+    'cliente', 'responsable', 'autor', 'author'
+}
+
+CONCEPTOS_TECNICOS = {
+    'framework', 'frameworks', 'agent', 'agents', 'agente', 'agentes', 'flow', 'flows', 'flujo', 'flujos',
+    'pipeline', 'pipelines', 'model', 'models', 'modelo', 'modelos', 'process', 'processes', 'proceso', 'procesos',
+    'architecture', 'arquitectura', 'system', 'systems', 'sistema', 'sistemas', 'tool', 'tools', 'herramientas',
+    'data', 'datos', 'report', 'reporte', 'informe', 'link', 'links', 'enlaces', 'prompt', 'embedding',
+    'dataset', 'tech hub', 'hub', 'stack', 'benchmark', 'analysis', 'overview', 'guide', 'checkpoint'
+}
+
+VERBOS_DESCARTE = {
+    'encontramos', 'buscamos', 'revisamos', 'analizamos', 'encontró', 'encontro', 'hallamos', 'observamos',
+    'presentamos', 'identificamos', 'comprobamos', 'detectamos', 'concluimos', 'proponemos', 'evaluamos',
+    'found', 'reviewed', 'analyzed', 'discovered', 'identified', 'observed', 'presented', 'proposed', 'concluded'
+}
+
+SPANISH_NAMES = [
+    "Jessica", "Jesica", "Yessica", "Jennifer", "Yenifer", "Kevin", "Brian", "Brayan", "Jonathan", "Jonatan",
+    "Nicole", "Dylan", "Axel", "Maite", "Nahuel", "Thiago", "Tiago", "Camila", "Valeria", "Antonella",
+    "Agustina", "Romina", "Florencia", "Gisela", "Giselle", "Micaela", "Yamila", "Facundo", "Mariano",
+    "Emiliano", "Gonzalo", "Esteban", "Federico", "Hernan", "Hernán", "Damian", "Damián", "Ezequiel", "Geronimo",
+    "Gerónimo", "Lautaro", "Bautista", "Santino", "Joaquin", "Joaquín", "Valentin", "Valentín", "Ignacio",
+    "Lisandro", "Agustin", "Agustín", "Alvaro", "Álvaro", "Rodrigo", "Alfonso", "Ines", "Inés", "Pilar",
+    "Teresa", "Mercedes", "Dolores", "Montserrat", "Rocio", "Rocío", "Macarena", "Cristina", "Susana",
+    "Marta", "Miriam", "Irene", "Silvia", "Raquel", "Monica", "Mónica", "Natalia", "Lorena", "Vanesa",
+    "Vanessa", "Patricia", "Beatriz", "Guillermo", "Manuel", "Pablo", "Sergio", "Ruben", "Rubén", "Adrian",
+    "Adrián", "Ivan", "Iván", "Raul", "Raúl", "Oscar", "Óscar", "David", "Marcos", "Hugo", "Lucas",
+    "Daniel", "Mario", "Victor", "Víctor", "Hector", "Héctor", "Felix", "Félix", "Cesar", "César",
+    "Arturo", "Ernesto", "Ramiro", "Mauricio", "Fabian", "Fabián", "Claudio", "Marcelo", "Gustavo",
+    "Eduardo", "Ricardo", "Roberto", "Fernando", "Francisco", "Jose", "José", "Antonio", "Luis",
+    "Jorge", "Miguel", "Angel", "Ángel", "Pedro", "Jesus", "Jesús", "Alberto", "Alejandro", "Javier",
+    "Carlos", "Juan", "Ana", "Lucia", "Lucía", "Maria", "María", "Laura", "Sofia", "Sofía",
+    "Elena", "Carmen", "Paula", "Andrea", "Claudia", "Sara", "Julia", "Alba", "Noelia", "Sonia",
+    "Alicia", "Eva", "Marina", "Nerea", "Belen", "Belén", "Gloria", "Victoria", "Carolina", "Clara",
+    "Daniela", "Gabriela", "Carlos Mendoza", "Santiago Valencia", "Alejandro Gómez", "Juan Pérez", "María Rodríguez",
+    "Laura Martínez", "Andrés Felipe", "Sofía Castro", "Diego Armando", "Carlos Ruiz", "Ana Gómez", "Luis Torres", "María López"
+]
+
+ENGLISH_NAMES = [
+    "John", "Michael", "James", "Robert", "William", "David", "Richard", "Charles", "Joseph", "Thomas",
+    "Christopher", "Daniel", "Paul", "Mark", "Donald", "George", "Kenneth", "Steven", "Edward", "Brian",
+    "Ronald", "Anthony", "Kevin", "Jason", "Matthew", "Gary", "Timothy", "Larry", "Jeffrey", "Frank",
+    "Scott", "Eric", "Stephen", "Andrew", "Raymond", "Gregory", "Joshua", "Jerry", "Dennis", "Walter",
+    "Patrick", "Peter", "Harold", "Douglas", "Henry", "Carl", "Arthur", "Ryan", "Roger", "Jack",
+    "Albert", "Jonathan", "Justin", "Terry", "Gerald", "Keith", "Samuel", "Willie", "Ralph", "Lawrence",
+    "Nicholas", "Roy", "Benjamin", "Bruce", "Brandon", "Adam", "Harry", "Fred", "Wayne", "Billy",
+    "Steve", "Louis", "Jeremy", "Aaron", "Randy", "Howard", "Eugene", "Russell", "Bobby", "Victor",
+    "Martin", "Ernest", "Phillip", "Todd", "Jesse", "Craig", "Alan", "Shawn", "Clarence", "Sean",
+    "Philip", "Chris", "Johnny", "Earl", "Jimmy", "Mary", "Patricia", "Jennifer", "Linda", "Elizabeth",
+    "Barbara", "Susan", "Jessica", "Sarah", "Karen", "Nancy", "Lisa", "Betty", "Margaret", "Sandra",
+    "Ashley", "Kimberly", "Emily", "Donna", "Michelle", "Dorothy", "Carol", "Amanda", "Melissa", "Deborah",
+    "Stephanie", "Rebecca", "Sharon", "Laura", "Cynthia", "Kathleen", "Amy", "Shirley", "Angela", "Helen",
+    "Anna", "Brenda", "Pamela", "Nicole", "Emma", "Samantha", "Katherine", "Christine", "Debra", "Rachel",
+    "Catherine", "Carolyn", "Janet", "Ruth", "Maria", "Heather", "Diane", "Virginia", "Julie", "Joyce",
+    "Victoria", "Olivia", "Kelly", "Christina", "Lauren", "Joan", "Evelyn", "Judith", "Megan", "Cheryl",
+    "Andrea", "Hannah", "Martha", "Jacqueline", "Frances", "Gloria", "Ann", "Teresa", "Kathryn", "Sara",
+    "Janice", "Jean", "Alice", "Madison", "Doris", "Abigail", "Julia", "Judy", "Grace", "Denise",
+    "Amber", "Marilyn", "Beverly", "Danielle", "Theresa", "Sophia", "Marie", "Diana", "Brittany", "Natalie",
+    "Isabella", "Charlotte", "Rose", "Alexis", "Kayla", "John Smith", "Pierre Dupont", "Hans Müller"
+]
+
+ALL_KNOWN_NAMES = set(n.lower() for n in SPANISH_NAMES + ENGLISH_NAMES)
+KNOWN_LOCATIONS = {'madrid', 'barcelona', 'valencia', 'sevilla', 'bilbao', 'paris', 'parís', 'berlin', 'berlín', 'london', 'londres', 'new york', 'rome', 'roma'}
+
+
+def validar_y_limpiar_entidad(texto_completo, start, end, entidad_tipo):
+    """
+    Guard Gramatical y Morfosintáctico Centralizado:
+    Aplica filtros anti-verbos, anti-roles y desambiguación de Title Case a TODAS las rutas (Presidio y Regex).
+    Incluye Salvaguarda Anti-Falsos Negativos (preserva nombres/ubicaciones reales dentro de entidades compuestas).
+    Retorna: (es_valido, texto_a_reemplazar, start_ajustado, end_ajustado, entidad_tipo_ajustado)
+    """
+    val = texto_completo[start:end].strip()
+    if not val or len(val) < 2 or "[" in val or "]" in val:
+        return False, val, start, end, entidad_tipo
+
+    val_lower = val.lower().strip()
+
+    # 1. Allowlist global directa
+    if val_lower in SOFTWARE_ALLOWLIST:
+        return False, val, start, end, entidad_tipo
+
+    # 2. Regla Anti-Verbos
+    if val_lower in VERBOS_DESCARTE:
+        return False, val, start, end, entidad_tipo
+
+    palabras_val = [p for p in re.split(r'[\s\-_/]+', val) if p]
+    palabras_lower = [p.lower() for p in palabras_val]
+
+    # 3. Regla para PERSONA / ROLES
+    if entidad_tipo == "PERSON" or entidad_tipo == "PERSONA":
+        # Descartar si coincide exactamente con un rol genérico sin nombre
+        if val_lower in ROLES_GENERICOS:
+            return False, val, start, end, entidad_tipo
+
+        # Salvaguarda Anti-Falsos Negativos: si la entidad contiene palabras de rol/técnicas junto a un nombre propio conocido
+        if any(p in ROLES_GENERICOS or p in SOFTWARE_ALLOWLIST or p in VERBOS_DESCARTE for p in palabras_lower):
+            for n_cand in sorted(list(set(SPANISH_NAMES + ENGLISH_NAMES)), key=len, reverse=True):
+                if n_cand.lower() != val_lower and re.search(rf"\b{re.escape(n_cand)}\b", val, re.IGNORECASE):
+                    m_sub = re.search(rf"\b{re.escape(n_cand)}\b", val, re.IGNORECASE)
+                    if m_sub:
+                        nuevo_start = start + m_sub.start()
+                        nuevo_end = start + m_sub.end()
+                        return True, texto_completo[nuevo_start:nuevo_end], nuevo_start, nuevo_end, entidad_tipo
+
+        # Si todas las palabras son términos técnicos o de negocio comunes, descartar
+        if all(p in SOFTWARE_ALLOWLIST or p in ROLES_GENERICOS or p in STOPWORDS_ES or p in STOPWORDS_EN for p in palabras_lower):
+            return False, val, start, end, entidad_tipo
+
+    # 4. Regla para UBICACION / LOCATION (Desambiguación de Title Case)
+    if entidad_tipo in ["LOCATION", "UBICACION"]:
+        # Salvaguarda Anti-Falsos Negativos: si contiene una ubicación conocida real junto a términos técnicos (ej. "Madrid Tech Hub")
+        if any(p in CONCEPTOS_TECNICOS or p in SOFTWARE_ALLOWLIST for p in palabras_lower):
+            for loc in sorted(list(KNOWN_LOCATIONS), key=len, reverse=True):
+                if loc.lower() != val_lower and re.search(rf"\b{re.escape(loc)}\b", val, re.IGNORECASE):
+                    m_sub = re.search(rf"\b{re.escape(loc)}\b", val, re.IGNORECASE)
+                    if m_sub:
+                        nuevo_start = start + m_sub.start()
+                        nuevo_end = start + m_sub.end()
+                        return True, texto_completo[nuevo_start:nuevo_end], nuevo_start, nuevo_end, entidad_tipo
+
+        # Descartar si está compuesta íntegramente por conceptos técnicos o palabras conectivas (ej. "Frameworks de Agentes y Flujos")
+        if all(p in CONCEPTOS_TECNICOS or p in SOFTWARE_ALLOWLIST or p in {'de', 'del', 'la', 'las', 'los', 'el', 'y', 'e', 'en', 'con', 'para', 'and', 'with', 'for', 'of', 'in'} for p in palabras_lower):
+            return False, val, start, end, entidad_tipo
+
+    return True, val, start, end, entidad_tipo
 
 MAPA_ETIQUETAS = {
     "PERSON": "PERSONA",
@@ -240,9 +643,59 @@ def generalizar_cuasi_identificadores(texto):
     
     return t
 
+def obtener_idioma_activo():
+    try:
+        from i18n import get_current_language
+        lang = get_current_language()
+        return "en" if str(lang).lower().startswith("en") else "es"
+    except Exception:
+        return "es"
+
+# Expresiones Regulares a nivel de módulo para evitar NameError y recompilación
+PATRONES_REGEX_ANON = [
+    (re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", re.IGNORECASE), "[CORREO_ELIMINADO]"),
+    (re.compile(r"\b(?:https?://)?(?:www\.)?([a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.(?:com|es|org|net|co|io|gov|edu))\b", re.IGNORECASE), "[DOMINIO_ELIMINADO]"),
+    (re.compile(r"\b(?:sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{20,}|bearer\s+[a-zA-Z0-9._\-]+|(?:password|clave|contraseña|pwd|api_key|secret|token)\s*[:=]\s*['\"]?([^\s'\"]{4,})['\"]?)\b", re.IGNORECASE), "[CLAVE_ELIMINADA]"),
+    (re.compile(r"(?:@([a-zA-Z0-9._-]+)|\b(?:user|usuario|username|interlocutor)\s*[:=]\s*['\"]?([a-zA-Z0-9._-]+)['\"]?)", re.IGNORECASE), "[USUARIO_ELIMINADO]"),
+    (re.compile(r"\b(?:\d[ -]?){13,16}\b"), "[TARJETA_ELIMINADA]"),
+    # Teléfonos españoles e internacionales
+    (re.compile(r"(?:\+34\s*|0034\s*)?(?:[6789]\d{2}[\s.-]?\d{3}[\s.-]?\d{3}|[6789]\d{2}[\s.-]?\d{2}[\s.-]?\d{2}[\s.-]?\d{2}|[6789]\d{1}[\s.-]?\d{3}[\s.-]?\d{2}[\s.-]?\d{2}|[6789]\d{8}|\b(?:\+?\d{1,4}[-.\s]?)?(?:\(?\d{2,5}\)?[-.\s]?)?\d{3,4}[-.\s]?\d{3,4}\b)"), "[TELEFONO_ELIMINADO]"),
+    (re.compile(r"\b\d{7,10}[-\s]?[A-Z0-9]?\b"), "[DOCUMENTO_ELIMINADO]"),
+    # Escuelas, Colegios, Universidades e Instituciones
+    (re.compile(r"\b(?:Colegio|Escuela|Instituto|CEIP|IES|Universidad|Facultad|Conservatorio|Hospital|Clínica|Fundación|Centro\s+Educativo|Guardería|Jardín\s+de\s+Infantes)\s+(?:N[º°]?\s*\d+\s+)?(?:de\s+|del\s+|la\s+|las\s+|los\s+|San\s+|Santa\s+|Nuestra\s+Señora\s+de\s+|Don\s+|Doña\s+)?[A-ZÁÉÍÓÚÑ][a-záéíóúñA-ZÁÉÍÓÚÑ0-9\s.-]+?(?=\s*[,;.\n]|\s+y\b|\s+con\b|\s+en\b|\s+de\b|\s+del\b|$)"), "[ORGANIZACION]"),
+    # Nombres en mayúsculas sostenidas (ALL CAPS) y nombres completos tipo Title Case
+    (re.compile(r"\b[A-ZÁÉÍÓÚÑ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ]{2,})+\b"), "[PERSONA]"),
+    (re.compile(r"\b[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})+\b"), "[PERSONA]"),
+    # Fórmulas de introducción legal
+    (re.compile(r"\b(?:representado|representada|firmado|firma|por)\s+(?:en\s+este\s+acto\s+)?(?:por\s+)?([A-ZÁÉÍÓÚÑ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ]{2,})*|[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*)\b"), "[PERSONA]"),
+    (re.compile(r"(?:(?:\d{2}:\d{2}\s+)?([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}(?:\s+[A-Z]\.?[A-Z]\.?)?)\s*:)"), "[PERSONA]"),
+    (re.compile(r"(?:,\s*|\b(?:gracias|mira|mirá|dime|decía|bueno|hola|estimado|estimada|saludos)\s+)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})"), "[PERSONA]"),
+]
+
+PATRONES_REGEX = [
+    (re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", re.IGNORECASE), "CORREO"),
+    (re.compile(r"\b(?:https?://)?(?:www\.)?([a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.(?:com|es|org|net|co|io|gov|edu))\b", re.IGNORECASE), "DOMINIO"),
+    (re.compile(r"\b(?:sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{20,}|bearer\s+[a-zA-Z0-9._\-]+|(?:password|clave|contraseña|pwd|api_key|secret|token)\s*[:=]\s*['\"]?([^\s'\"]{4,})['\"]?)\b", re.IGNORECASE), "CLAVE"),
+    (re.compile(r"(?:@([a-zA-Z0-9._-]+)|\b(?:user|usuario|username|interlocutor)\s*[:=]\s*['\"]?([a-zA-Z0-9._-]+)['\"]?)", re.IGNORECASE), "USUARIO"),
+    (re.compile(r"\b(?:\d[ -]?){13,16}\b"), "TARJETA_CREDITO"),
+    # Teléfonos españoles e internacionales
+    (re.compile(r"(?:\+34\s*|0034\s*)?(?:[6789]\d{2}[\s.-]?\d{3}[\s.-]?\d{3}|[6789]\d{2}[\s.-]?\d{2}[\s.-]?\d{2}[\s.-]?\d{2}|[6789]\d{1}[\s.-]?\d{3}[\s.-]?\d{2}[\s.-]?\d{2}|[6789]\d{8}|\b(?:\+?\d{1,4}[-.\s]?)?(?:\(?\d{2,5}\)?[-.\s]?)?\d{3,4}[-.\s]?\d{3,4}\b)"), "TELEFONO"),
+    (re.compile(r"\b\d{7,10}[-\s]?[A-Z0-9]?\b"), "ID_OFICIAL"),
+    # Escuelas, Colegios, Universidades e Instituciones
+    (re.compile(r"\b(?:Colegio|Escuela|Instituto|CEIP|IES|Universidad|Facultad|Conservatorio|Hospital|Clínica|Fundación|Centro\s+Educativo|Guardería|Jardín\s+de\s+Infantes)\s+(?:N[º°]?\s*\d+\s+)?(?:de\s+|del\s+|la\s+|las\s+|los\s+|San\s+|Santa\s+|Nuestra\s+Señora\s+de\s+|Don\s+|Doña\s+)?[A-ZÁÉÍÓÚÑ][a-záéíóúñA-ZÁÉÍÓÚÑ0-9\s.-]+?(?=\s*[,;.\n]|\s+y\b|\s+con\b|\s+en\b|\s+de\b|\s+del\b|$)"), "ORGANIZACION"),
+    # Nombres en mayúsculas sostenidas (ALL CAPS) y nombres completos tipo Title Case
+    (re.compile(r"\b[A-ZÁÉÍÓÚÑ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ]{2,})+\b"), "PERSONA"),
+    (re.compile(r"\b[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})+\b"), "PERSONA"),
+    # Fórmulas de introducción legal
+    (re.compile(r"\b(?:representado|representada|firmado|firma|por)\s+(?:en\s+este\s+acto\s+)?(?:por\s+)?([A-ZÁÉÍÓÚÑ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ]{2,})*|[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*)\b"), "PERSONA"),
+    (re.compile(r"(?:(?:\d{2}:\d{2}\s+)?([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}(?:\s+[A-Z]\.?[A-Z]\.?)?)\s*:)"), "PERSONA"),
+    (re.compile(r"(?:,\s*|\b(?:gracias|mira|mirá|dime|decía|bueno|hola|estimado|estimada|saludos)\s+)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})"), "PERSONA"),
+]
+
 def anonimizar_texto_real_irreversible(texto, generalizar_cuasi=True):
     """
     ANONIMIZACIÓN REAL E IRREVERSIBLE (Considerando 26 RGPD & Directrices EDPB 02/2026)
+    - Detección de idioma estricta (ES / EN / Mixto) con rechazo seguro de terceros idiomas.
     - Cero generación de llaves de correspondencia (.key).
     - Destrucción de identificadores directos reemplazándolos por categorías genéricas sin índices correlativos.
     - Generalización de cuasi-identificadores (fechas a años, códigos postales truncados).
@@ -251,91 +704,121 @@ def anonimizar_texto_real_irreversible(texto, generalizar_cuasi=True):
     if not isinstance(texto, str) or not texto.strip():
         return texto, {}
 
+    # 1. Detección y validación de idioma (lanza IdiomaNoSoportadoError si corresponde)
+    idioma_clasificado, idiomas_a_analizar = detectar_idioma(texto)
+
     stats = {
         "identificadores_directos_suprimidos": 0,
         "cuasi_identificadores_generalizados": 0,
-        "terminos_confidenciales_suprimidos": 0
+        "terminos_confidenciales_suprimidos": 0,
+        "idioma_detectado": idioma_clasificado
     }
 
-    # 1. Aplicar exclusiones corporativas destructivamente
+    # 2. Aplicar exclusiones corporativas destructivamente
     texto_filtrado = aplicar_diccionario_exclusiones(texto)
     if texto_filtrado != texto:
         stats["terminos_confidenciales_suprimidos"] += 1
 
     texto_anom = texto_filtrado
 
-    # 2. Generalización de cuasi-identificadores
+    # 3. Generalización de cuasi-identificadores
     if generalizar_cuasi:
         texto_generalizado = generalizar_cuasi_identificadores(texto_anom)
         if texto_generalizado != texto_anom:
             stats["cuasi_identificadores_generalizados"] += 1
         texto_anom = texto_generalizado
 
-    # 3. Presidio AI Engine (con reemplazos genéricos destructivos, sin índices numéricos)
+    # 4. Presidio AI Engine (Bilingüe / Mixto con guard gramatical centralizado)
     if analyzer:
         try:
             texto_analisis = all_caps_to_title_case(texto_anom)
-            resultados = analyzer.analyze(
-                text=texto_analisis,
-                language="es",
-                entities=["PERSON", "LOCATION", "ORGANIZATION", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD"]
-            )
-            for pii in sorted(resultados, key=lambda x: x.start, reverse=True):
-                val = texto_anom[pii.start:pii.end].strip()
-                if not val or val.lower() in SOFTWARE_ALLOWLIST or len(val) < 2 or "[" in val or "]" in val:
+            todas_entidades = []
+            
+            for lang in idiomas_a_analizar:
+                if lang in analyzer.supported_languages:
+                    res_lang = analyzer.analyze(
+                        text=texto_analisis,
+                        language=lang,
+                        entities=["PERSON", "LOCATION", "ORGANIZATION", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD"]
+                    )
+                    todas_entidades.extend(res_lang)
+
+            # Deduplicar entidades solapadas
+            res_no_solapados = []
+            for pii in sorted(todas_entidades, key=lambda x: (x.end - x.start, x.score), reverse=True):
+                if not any(max(pii.start, f.start) < min(pii.end, f.end) for f in res_no_solapados):
+                    res_no_solapados.append(pii)
+
+            for pii in sorted(res_no_solapados, key=lambda x: x.start, reverse=True):
+                valido, val_txt, s_aj, e_aj, e_tipo = validar_y_limpiar_entidad(texto_anom, pii.start, pii.end, pii.entity_type)
+                if not valido:
                     continue
+
                 # Verificar que no esté dentro de corchetes existentes
-                prefijo = texto_anom[:pii.start]
-                sufijo = texto_anom[pii.end:]
+                prefijo = texto_anom[:s_aj]
+                sufijo = texto_anom[e_aj:]
                 if prefijo.rfind("[") > prefijo.rfind("]") and sufijo.find("]") < sufijo.find("["):
                     continue
 
-                etiqueta = MAPA_ETIQUETAS_ANON_REAL.get(pii.entity_type, "[DATO_PERSONAL]")
-                texto_anom = texto_anom[:pii.start] + etiqueta + texto_anom[pii.end:]
+                etiqueta = MAPA_ETIQUETAS_ANON_REAL.get(e_tipo, "[DATO_PERSONAL]")
+                texto_anom = texto_anom[:s_aj] + etiqueta + texto_anom[e_aj:]
                 stats["identificadores_directos_suprimidos"] += 1
+        except IdiomaNoSoportadoError:
+            raise
         except Exception as ex:
             print(f"Error en Presidio Anonimización Real: {ex}")
 
-    # 4. Expresiones Regulares Destructivas
-    PATRONES_REGEX_ANON = [
-        (re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", re.IGNORECASE), "[CORREO_ELIMINADO]"),
-        (re.compile(r"\b(?:https?://)?(?:www\.)?([a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.(?:com|es|org|net|co|io|gov|edu))\b", re.IGNORECASE), "[DOMINIO_ELIMINADO]"),
-        (re.compile(r"\b(?:sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{20,}|bearer\s+[a-zA-Z0-9._\-]+|(?:password|clave|contraseña|pwd|api_key|secret|token)\s*[:=]\s*['\"]?([^\s'\"]{4,})['\"]?)\b", re.IGNORECASE), "[CLAVE_ELIMINADA]"),
-        (re.compile(r"(?:@([a-zA-Z0-9._-]+)|\b(?:user|usuario|username|interlocutor)\s*[:=]\s*['\"]?([a-zA-Z0-9._-]+)['\"]?)", re.IGNORECASE), "[USUARIO_ELIMINADO]"),
-        (re.compile(r"\b(?:\d[ -]?){13,16}\b"), "[TARJETA_ELIMINADA]"),
-        (re.compile(r"\+?\b\d{1,4}[-\s]?\d{3,4}[-\s]?\d{3,4}\b"), "[TELEFONO_ELIMINADO]"),
-        (re.compile(r"\b\d{7,10}[-\s]?[A-Z0-9]?\b"), "[DOCUMENTO_ELIMINADO]"),
-        (re.compile(r"\b[A-ZÁÉÍÓÚÑ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ]{2,})+\b"), "[PERSONA]"),
-        (re.compile(r"\b[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})+\b"), "[PERSONA]"),
-        (re.compile(r"\b(?:representado|representada|firmado|firma|por)\s+(?:en\s+este\s+acto\s+)?(?:por\s+)?([A-ZÁÉÍÓÚÑ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ]{2,})*|[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*)\b"), "[PERSONA]"),
-        (re.compile(r"(?:(?:\d{2}:\d{2}\s+)?([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}(?:\s+[A-Z]\.?[A-Z]\.?)?)\s*:)"), "[PERSONA]"),
-        (re.compile(r"(?:,\s*|\b(?:gracias|mira|mirá|dime|decía|bueno|hola|estimado|estimada|saludos)\s+)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})"), "[PERSONA]"),
-    ]
-
-    for nombre in SPANISH_NAMES:
-        if nombre.lower() in SOFTWARE_ALLOWLIST:
+    # 5. Nombres propios conocidos (ES y EN con guard gramatical, ordenados por longitud)
+    for nombre in sorted(list(set(SPANISH_NAMES + ENGLISH_NAMES)), key=len, reverse=True):
+        if nombre.lower() in SOFTWARE_ALLOWLIST or len(nombre) < 3:
             continue
         patron = re.compile(rf"\b{re.escape(nombre)}\b", re.IGNORECASE)
-        matches = list(patron.finditer(texto_anom))
-        for match in matches:
-            val = match.group(0)
-            if "[" in val or "]" in val:
+        for match in list(patron.finditer(texto_anom)):
+            valido, val_txt, s_aj, e_aj, _ = validar_y_limpiar_entidad(texto_anom, match.start(), match.end(), "PERSON")
+            if not valido:
                 continue
-            texto_anom = re.sub(rf"\b{re.escape(val)}\b", "[PERSONA]", texto_anom)
+            if "[" in val_txt or "]" in val_txt:
+                continue
+            prefijo = texto_anom[:s_aj]
+            sufijo = texto_anom[e_aj:]
+            if prefijo.rfind("[") > prefijo.rfind("]") and sufijo.find("]") < sufijo.find("["):
+                continue
+            texto_anom = texto_anom[:s_aj] + "[PERSONA]" + texto_anom[e_aj:]
             stats["identificadores_directos_suprimidos"] += 1
 
+    # 6. Ubicaciones conocidas (Madrid, Barcelona, London, Paris, etc.)
+    for loc in sorted(list(KNOWN_LOCATIONS), key=len, reverse=True):
+        patron_loc = re.compile(rf"\b{re.escape(loc)}\b", re.IGNORECASE)
+        for match in list(patron_loc.finditer(texto_anom)):
+            valido, val_txt, s_aj, e_aj, _ = validar_y_limpiar_entidad(texto_anom, match.start(), match.end(), "LOCATION")
+            if not valido or "[" in val_txt or "]" in val_txt:
+                continue
+            prefijo = texto_anom[:s_aj]
+            sufijo = texto_anom[e_aj:]
+            if prefijo.rfind("[") > prefijo.rfind("]") and sufijo.find("]") < sufijo.find("["):
+                continue
+            texto_anom = texto_anom[:s_aj] + "[UBICACION]" + texto_anom[e_aj:]
+            stats["identificadores_directos_suprimidos"] += 1
+
+    # 7. Expresiones Regulares con Guard Morfosintáctico Unificado
     for regex, tag in PATRONES_REGEX_ANON:
         matches = list(regex.finditer(texto_anom))
-        for match in matches:
-            val = match.group(1) if match.groups() and match.group(1) else match.group(0)
-            if not val or "[" in val or "]" in val:
+        for match in sorted(matches, key=lambda m: m.start(), reverse=True):
+            m_start = match.start(1) if match.groups() and match.group(1) else match.start()
+            m_end = match.end(1) if match.groups() and match.group(1) else match.end()
+            
+            entidad_check = "PERSON" if tag == "[PERSONA]" else ("LOCATION" if tag == "[UBICACION]" else tag.strip("[]"))
+            valido, val_txt, s_aj, e_aj, _ = validar_y_limpiar_entidad(texto_anom, m_start, m_end, entidad_check)
+            if not valido or "[" in val_txt or "]" in val_txt:
                 continue
-            if val.lower().strip() in SOFTWARE_ALLOWLIST:
+
+            # Verificar que no esté dentro de corchetes existentes
+            prefijo = texto_anom[:s_aj]
+            sufijo = texto_anom[e_aj:]
+            if prefijo.rfind("[") > prefijo.rfind("]") and sufijo.find("]") < sufijo.find("["):
                 continue
-            if tag in ["[PERSONA]", "[ORGANIZACION]", "[UBICACION]", "[DOCUMENTO_ELIMINADO]"]:
-                texto_anom = re.sub(rf"\b{re.escape(val)}\b", tag, texto_anom)
-            else:
-                texto_anom = texto_anom.replace(val, tag)
+
+            texto_anom = texto_anom[:s_aj] + tag + texto_anom[e_aj:]
             stats["identificadores_directos_suprimidos"] += 1
 
     texto_anom = re.sub(r'\[+([^\[\]]+)\]+', r'[\1]', texto_anom)
@@ -368,6 +851,9 @@ def anonimizar_texto_con_ia_y_key(texto, nombre_archivo=None, carpeta_salida=Non
     if not isinstance(texto, str) or not texto.strip():
         return texto, {}
 
+    # 1. Detección y validación de idioma
+    idioma_clasificado, idiomas_a_analizar = detectar_idioma(texto)
+
     target_salida = carpeta_salida or CARPETA_SALIDA_DEFECTO
     os.makedirs(target_salida, exist_ok=True)
     texto_filtrado = aplicar_diccionario_exclusiones(texto)
@@ -378,101 +864,137 @@ def anonimizar_texto_con_ia_y_key(texto, nombre_archivo=None, carpeta_salida=Non
 
     valor_a_etiqueta = {val: k for k, val in key_map.items()}
 
-    # 1. Presidio AI Engine (si está disponible)
+    # 2. Presidio AI Engine (Bilingüe / Mixto con guard gramatical)
     if analyzer:
         try:
-            # Preprocesar mayúsculas sostenidas a Title Case para asegurar detección por spaCy
             texto_analisis = all_caps_to_title_case(texto_anom)
-            resultados = analyzer.analyze(
-                text=texto_analisis,
-                language="es",
-                entities=["PERSON", "LOCATION", "ORGANIZATION", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD"]
-            )
-            for pii in sorted(resultados, key=lambda x: x.start, reverse=True):
-                # Recuperar el valor original del texto con las mayúsculas originales
-                val = texto_anom[pii.start:pii.end].strip()
-                if not val or val.lower() in SOFTWARE_ALLOWLIST or len(val) < 2:
+            todas_entidades = []
+            for lang in idiomas_a_analizar:
+                if lang in analyzer.supported_languages:
+                    res_lang = analyzer.analyze(
+                        text=texto_analisis,
+                        language=lang,
+                        entities=["PERSON", "LOCATION", "ORGANIZATION", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD"]
+                    )
+                    todas_entidades.extend(res_lang)
+
+            # Desduplicar spans solapados
+            res_no_solapados = []
+            for pii in sorted(todas_entidades, key=lambda x: (x.end - x.start, x.score), reverse=True):
+                if not any(max(pii.start, f.start) < min(pii.end, f.end) for f in res_no_solapados):
+                    res_no_solapados.append(pii)
+
+            for pii in sorted(res_no_solapados, key=lambda x: x.start, reverse=True):
+                valido, val_txt, s_aj, e_aj, e_tipo = validar_y_limpiar_entidad(texto_anom, pii.start, pii.end, pii.entity_type)
+                if not valido:
                     continue
-                tag = MAPA_ETIQUETAS.get(pii.entity_type, "PERSONA")
-                if val in valor_a_etiqueta:
-                    etiqueta = valor_a_etiqueta[val]
+
+                # Verificar que no esté dentro de corchetes existentes
+                prefijo = texto_anom[:s_aj]
+                sufijo = texto_anom[e_aj:]
+                if prefijo.rfind("[") > prefijo.rfind("]") and sufijo.find("]") < sufijo.find("["):
+                    continue
+
+                tag = MAPA_ETIQUETAS.get(e_tipo, "PERSONA")
+                if val_txt in valor_a_etiqueta:
+                    etiqueta = valor_a_etiqueta[val_txt]
                 else:
                     idx = contadores.get(tag, 1)
                     etiqueta = f"[{tag}_{idx}]"
                     contadores[tag] = idx + 1
-                    key_map[etiqueta] = val
-                    valor_a_etiqueta[val] = etiqueta
+                    key_map[etiqueta] = val_txt
+                    valor_a_etiqueta[val_txt] = etiqueta
 
-                # Reemplazar únicamente en la posición detectada para evitar falsos positivos
-                texto_anom = texto_anom[:pii.start] + etiqueta + texto_anom[pii.end:]
+                texto_anom = texto_anom[:s_aj] + etiqueta + texto_anom[e_aj:]
+        except IdiomaNoSoportadoError:
+            raise
         except Exception as ex:
             print(f"Error analizando Presidio: {ex}")
 
-    # Actualizar mapa de reversión después del procesamiento de Presidio
     valor_a_etiqueta = {val: k for k, val in key_map.items()}
 
-    # 2. Expresiones Regulares Específicas
-    # Las expresiones de vocativos y tags de interlocutores son sensibles a mayúsculas para evitar clasificar preposiciones/verbos
-    PATRONES_REGEX = [
-        (re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", re.IGNORECASE), "CORREO"),
-        (re.compile(r"\b(?:https?://)?(?:www\.)?([a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.(?:com|es|org|net|co|io|gov|edu))\b", re.IGNORECASE), "DOMINIO"),
-        (re.compile(r"\b(?:sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{20,}|bearer\s+[a-zA-Z0-9._\-]+|(?:password|clave|contraseña|pwd|api_key|secret|token)\s*[:=]\s*['\"]?([^\s'\"]{4,})['\"]?)\b", re.IGNORECASE), "CLAVE"),
-        (re.compile(r"(?:@([a-zA-Z0-9._-]+)|\b(?:user|usuario|username|interlocutor)\s*[:=]\s*['\"]?([a-zA-Z0-9._-]+)['\"]?)", re.IGNORECASE), "USUARIO"),
-        (re.compile(r"\b(?:\d[ -]?){13,16}\b"), "TARJETA_CREDITO"),
-        (re.compile(r"\+?\b\d{1,4}[-\s]?\d{3,4}[-\s]?\d{3,4}\b"), "TELEFONO"),
-        (re.compile(r"\b\d{7,10}[-\s]?[A-Z0-9]?\b"), "ID_OFICIAL"),
-        # Nombres en mayúsculas sostenidas (ALL CAPS) y nombres completos tipo Title Case
-        (re.compile(r"\b[A-ZÁÉÍÓÚÑ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ]{2,})+\b"), "PERSONA"),
-        (re.compile(r"\b[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})+\b"), "PERSONA"),
-        # Fórmulas de introducción legal (ej: representada por, en este acto por) para capturar nombres incluso cortados
-        (re.compile(r"\b(?:representado|representada|firmado|firma|por)\s+(?:en\s+este\s+acto\s+)?(?:por\s+)?([A-ZÁÉÍÓÚÑ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ]{2,})*|[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*)\b"), "PERSONA"),
-        (re.compile(r"(?:(?:\d{2}:\d{2}\s+)?([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}(?:\s+[A-Z]\.?[A-Z]\.?)?)\s*:)"), "PERSONA"),
-        (re.compile(r"(?:,\s*|\b(?:gracias|mira|mirá|dime|decía|bueno|hola|estimado|estimada|saludos)\s+)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})"), "PERSONA"),
-    ]
-
-    # Matching explícito de nombres propios en español
-    for nombre in SPANISH_NAMES:
-        if nombre.lower() in SOFTWARE_ALLOWLIST:
+    # 3. Matching explícito de nombres propios conocidos (ES y EN con guard gramatical, ordenados por longitud)
+    for nombre in sorted(list(set(SPANISH_NAMES + ENGLISH_NAMES)), key=len, reverse=True):
+        if nombre.lower() in SOFTWARE_ALLOWLIST or len(nombre) < 3:
             continue
         patron = re.compile(rf"\b{re.escape(nombre)}\b", re.IGNORECASE)
-        matches = list(patron.finditer(texto_anom))
-        for match in matches:
-            val = match.group(0)
-            if val.startswith("[") and val.endswith("]"):
+        for match in list(patron.finditer(texto_anom)):
+            valido, val_txt, s_aj, e_aj, _ = validar_y_limpiar_entidad(texto_anom, match.start(), match.end(), "PERSON")
+            if not valido or "[" in val_txt or "]" in val_txt:
                 continue
-            if val in valor_a_etiqueta:
-                etiqueta = valor_a_etiqueta[val]
+
+            # Verificar que no esté dentro de corchetes existentes
+            prefijo = texto_anom[:s_aj]
+            sufijo = texto_anom[e_aj:]
+            if prefijo.rfind("[") > prefijo.rfind("]") and sufijo.find("]") < sufijo.find("["):
+                continue
+
+            if val_txt in valor_a_etiqueta:
+                etiqueta = valor_a_etiqueta[val_txt]
             else:
                 idx = contadores.get("PERSONA", 1)
                 etiqueta = f"[PERSONA_{idx}]"
                 contadores["PERSONA"] = idx + 1
-                key_map[etiqueta] = val
-                valor_a_etiqueta[val] = etiqueta
-            texto_anom = re.sub(rf"\b{re.escape(val)}\b", etiqueta, texto_anom)
+                key_map[etiqueta] = val_txt
+                valor_a_etiqueta[val_txt] = etiqueta
 
+            texto_anom = texto_anom[:s_aj] + etiqueta + texto_anom[e_aj:]
+            valor_a_etiqueta = {val: k for k, val in key_map.items()}
+
+    # 4. Ubicaciones conocidas (Madrid, Barcelona, London, Paris, etc.)
+    for loc in sorted(list(KNOWN_LOCATIONS), key=len, reverse=True):
+        patron_loc = re.compile(rf"\b{re.escape(loc)}\b", re.IGNORECASE)
+        for match in list(patron_loc.finditer(texto_anom)):
+            valido, val_txt, s_aj, e_aj, _ = validar_y_limpiar_entidad(texto_anom, match.start(), match.end(), "LOCATION")
+            if not valido or "[" in val_txt or "]" in val_txt:
+                continue
+
+            prefijo = texto_anom[:s_aj]
+            sufijo = texto_anom[e_aj:]
+            if prefijo.rfind("[") > prefijo.rfind("]") and sufijo.find("]") < sufijo.find("["):
+                continue
+
+            if val_txt in valor_a_etiqueta:
+                etiqueta = valor_a_etiqueta[val_txt]
+            else:
+                idx = contadores.get("UBICACION", 1)
+                etiqueta = f"[UBICACION_{idx}]"
+                contadores["UBICACION"] = idx + 1
+                key_map[etiqueta] = val_txt
+                valor_a_etiqueta[val_txt] = etiqueta
+
+            texto_anom = texto_anom[:s_aj] + etiqueta + texto_anom[e_aj:]
+            valor_a_etiqueta = {val: k for k, val in key_map.items()}
+
+    # 5. Expresiones Regulares con Guard Morfosintáctico Unificado
     for regex, tag in PATRONES_REGEX:
-        matches = regex.finditer(texto_anom)
-        for match in list(matches):
-            val = match.group(1) if match.groups() and match.group(1) else match.group(0)
-            if not val or (val.startswith("[") and val.endswith("]")):
+        matches = list(regex.finditer(texto_anom))
+        for match in sorted(matches, key=lambda m: m.start(), reverse=True):
+            m_start = match.start(1) if match.groups() and match.group(1) else match.start()
+            m_end = match.end(1) if match.groups() and match.group(1) else match.end()
+
+            entidad_check = "PERSON" if tag == "PERSONA" else ("LOCATION" if tag == "UBICACION" else tag)
+            valido, val_txt, s_aj, e_aj, _ = validar_y_limpiar_entidad(texto_anom, m_start, m_end, entidad_check)
+            if not valido or "[" in val_txt or "]" in val_txt:
                 continue
-            if val.lower().strip() in SOFTWARE_ALLOWLIST:
+
+            # Verificar que no esté dentro de corchetes existentes
+            prefijo = texto_anom[:s_aj]
+            sufijo = texto_anom[e_aj:]
+            if prefijo.rfind("[") > prefijo.rfind("]") and sufijo.find("]") < sufijo.find("["):
                 continue
-            
-            if val in valor_a_etiqueta:
-                etiqueta = valor_a_etiqueta[val]
+
+            if val_txt in valor_a_etiqueta:
+                etiqueta = valor_a_etiqueta[val_txt]
             else:
                 idx = contadores.get(tag, 1)
                 etiqueta = f"[{tag}_{idx}]"
                 contadores[tag] = idx + 1
-                key_map[etiqueta] = val
-                valor_a_etiqueta[val] = etiqueta
+                key_map[etiqueta] = val_txt
+                valor_a_etiqueta[val_txt] = etiqueta
 
-            # Reemplazar con límites de palabra para tipos textuales y exacto para secuencias/datos
-            if tag in ["PERSONA", "ORGANIZACION", "UBICACION", "ID_OFICIAL"]:
-                texto_anom = re.sub(rf"\b{re.escape(val)}\b", etiqueta, texto_anom)
-            else:
-                texto_anom = texto_anom.replace(val, etiqueta)
+            texto_anom = texto_anom[:s_aj] + etiqueta + texto_anom[e_aj:]
+            valor_a_etiqueta = {val: k for k, val in key_map.items()}
 
     if nombre_archivo and key_map:
         guardar_llave_key(target_salida, nombre_archivo, key_map)
@@ -502,7 +1024,8 @@ def ejecutar_reversion_archivo(ruta_origen, mapa_reversion, ruta_destino=None):
     ext_lower = ext.lower()
 
     if not ruta_destino:
-        target_dir = os.path.dirname(ruta_origen)
+        target_dir = CARPETA_RESTAURADOS if 'CARPETA_RESTAURADOS' in globals() and os.path.exists(CARPETA_RESTAURADOS) else os.path.dirname(ruta_origen)
+        os.makedirs(target_dir, exist_ok=True)
         ruta_destino = os.path.join(target_dir, f"{nombre_base}_restaurado{ext}")
 
     if ext_lower in [".xlsx", ".xls"]:
@@ -824,13 +1347,16 @@ def procesar_imagen_ocr(ruta_origen, ruta_destino, nombre_archivo, carpeta_salid
             json.dump(mapas_acumulados, f, indent=4, ensure_ascii=False)
 
 
-def ejecutar_procesamiento_lotes(carpeta_salida=None):
+def ejecutar_procesamiento_lotes(carpeta_salida=None, archivo_especifico=None):
     target_salida = carpeta_salida or CARPETA_SALIDA_DEFECTO
     os.makedirs(target_salida, exist_ok=True)
     os.makedirs(CARPETA_PROCESADOS, exist_ok=True)
 
-    archivos = os.listdir(CARPETA_ENTRADA)
-    archivos = [f for f in archivos if not f.startswith("~$") and os.path.isfile(os.path.join(CARPETA_ENTRADA, f))]
+    if archivo_especifico:
+        archivos = [archivo_especifico] if os.path.exists(os.path.join(CARPETA_ENTRADA, archivo_especifico)) else []
+    else:
+        archivos = os.listdir(CARPETA_ENTRADA)
+        archivos = [f for f in archivos if not f.startswith("~$") and not f.startswith(".") and os.path.isfile(os.path.join(CARPETA_ENTRADA, f))]
     
     if not archivos:
         print(f"[INFO] La carpeta '{CARPETA_ENTRADA}' esta vacia. Agregue archivos para procesar.")
@@ -874,8 +1400,14 @@ def ejecutar_procesamiento_lotes(carpeta_salida=None):
             procesados_exitosos += 1
             print(f"✅ Procesado y movido a /procesados: {nombre_archivo}")
 
+        except IdiomaNoSoportadoError as e_lang:
+            print(f"⚠️ Archivo rechazado por idioma no soportado {nombre_archivo}: {e_lang}")
+            if archivo_especifico:
+                raise e_lang
         except Exception as e:
             print(f"❌ Error al procesar {nombre_archivo}: {e}")
+            if archivo_especifico:
+                raise e
             
     return procesados_exitosos
 
@@ -1302,6 +1834,7 @@ def procesar_pdf_real(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=
             for k in stats_global:
                 stats_global[k] += st.get(k, 0)
             
+            # 1. Redactar entidades de Presidio
             if analyzer:
                 try:
                     res_pii = analyzer.analyze(text=all_caps_to_title_case(texto_pagina), language="es",
@@ -1310,8 +1843,18 @@ def procesar_pdf_real(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=
                         val_orig = texto_pagina[pii.start:pii.end].strip()
                         if len(val_orig) > 1 and val_orig.lower() not in SOFTWARE_ALLOWLIST:
                             for rect in pagina.search_for(val_orig):
-                                tag = MAPA_ETIQUETAS_ANON_REAL.get(pii.entity_type, "[DATO_PERSONAL]")
-                                pagina.add_redact_annot(rect, text=tag, fill=(0.1, 0.1, 0.1), text_color=(1, 1, 1), fontsize=8)
+                                pagina.add_redact_annot(rect, fill=(0.1, 0.1, 0.1))
+                except Exception:
+                    pass
+
+            # 2. Redactar entidades por expresiones regulares (Teléfonos, Escuelas, Correos, etc.)
+            for reg, _ in PATRONES_REGEX_ANON:
+                try:
+                    for m in reg.finditer(texto_pagina):
+                        val_m = m.group(1) if m.groups() and m.group(1) else m.group(0)
+                        if val_m and len(val_m.strip()) > 2 and val_m.lower().strip() not in SOFTWARE_ALLOWLIST:
+                            for rect in pagina.search_for(val_m.strip()):
+                                pagina.add_redact_annot(rect, fill=(0.1, 0.1, 0.1))
                 except Exception:
                     pass
                     
@@ -1371,7 +1914,7 @@ def procesar_imagen_ocr_real(ruta_origen, ruta_destino, nombre_archivo, carpeta_
     generar_certificado_anonimizacion(nombre_archivo, target_salida, stats_global)
 
 
-def ejecutar_anonimizacion_real_lotes(carpeta_salida=None, k_umbral=3, generalizar_cuasi=True):
+def ejecutar_anonimizacion_real_lotes(carpeta_salida=None, k_umbral=3, generalizar_cuasi=True, archivo_especifico=None):
     """
     Ejecuta el pipeline de Anonimización Real Irreversible (Considerando 26 RGPD & Directrices EDPB 02/2026).
     - Cero persistencia de claves .key.
@@ -1382,8 +1925,11 @@ def ejecutar_anonimizacion_real_lotes(carpeta_salida=None, k_umbral=3, generaliz
     os.makedirs(target_salida, exist_ok=True)
     os.makedirs(CARPETA_PROCESADOS, exist_ok=True)
 
-    archivos = os.listdir(CARPETA_ENTRADA)
-    archivos = [f for f in archivos if not f.startswith("~$") and not f.startswith(".") and os.path.isfile(os.path.join(CARPETA_ENTRADA, f))]
+    if archivo_especifico:
+        archivos = [archivo_especifico] if os.path.exists(os.path.join(CARPETA_ENTRADA, archivo_especifico)) else []
+    else:
+        archivos = os.listdir(CARPETA_ENTRADA)
+        archivos = [f for f in archivos if not f.startswith("~$") and not f.startswith(".") and os.path.isfile(os.path.join(CARPETA_ENTRADA, f))]
     
     if not archivos:
         print(f"[INFO] La carpeta '{CARPETA_ENTRADA}' está vacía.")
@@ -1426,8 +1972,14 @@ def ejecutar_anonimizacion_real_lotes(carpeta_salida=None, k_umbral=3, generaliz
             procesados_exitosos += 1
             print(f"✅ Anonimizado (RGPD) y movido a /procesados: {nombre_archivo}")
 
+        except IdiomaNoSoportadoError as e_lang:
+            print(f"⚠️ Archivo rechazado por idioma no soportado {nombre_archivo}: {e_lang}")
+            if archivo_especifico:
+                raise e_lang
         except Exception as e:
             print(f"❌ Error al anonimizar {nombre_archivo}: {e}")
+            if archivo_especifico:
+                raise e
             
     return procesados_exitosos
 
