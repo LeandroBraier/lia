@@ -13,8 +13,15 @@ from unittest.mock import patch
 class TestFolderMigration(unittest.TestCase):
     def setUp(self):
         self.test_dir = tempfile.mkdtemp()
+        # actualizar_rutas_idioma cambia las rutas globales del módulo: se restauran al terminar
+        # para que las demás pruebas no apunten a esta carpeta temporal.
+        import app_offline
+        self.rutas_originales = {k: v for k, v in vars(app_offline).items() if k.startswith(("CARPETA_", "RUTA_"))}
 
     def tearDown(self):
+        import app_offline
+        for nombre, valor in self.rutas_originales.items():
+            setattr(app_offline, nombre, valor)
         shutil.rmtree(self.test_dir, ignore_errors=True)
 
     def test_legacy_folder_migration(self):

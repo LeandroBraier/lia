@@ -12,6 +12,7 @@ except ImportError:
     pd = None
 import shutil
 import tempfile
+from unittest.mock import patch
 import app_offline
 
 class TestAnonimizacionRGPD(unittest.TestCase):
@@ -20,8 +21,18 @@ class TestAnonimizacionRGPD(unittest.TestCase):
         self.temp_dir = tempfile.mkdtemp()
         self.carpeta_salida_test = os.path.join(self.temp_dir, "salida_anon_test")
         os.makedirs(self.carpeta_salida_test, exist_ok=True)
+        # Entrada y procesados temporales: la prueba nunca toca las carpetas reales del usuario.
+        self.carpetas = [
+            patch.object(app_offline, "CARPETA_ENTRADA", os.path.join(self.temp_dir, "Entrada")),
+            patch.object(app_offline, "CARPETA_PROCESADOS", os.path.join(self.temp_dir, "procesados")),
+        ]
+        for p in self.carpetas:
+            p.start()
+        os.makedirs(app_offline.CARPETA_ENTRADA, exist_ok=True)
 
     def tearDown(self):
+        for p in self.carpetas:
+            p.stop()
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_anonimizacion_texto_irreversible(self):
