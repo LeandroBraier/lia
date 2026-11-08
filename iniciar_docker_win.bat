@@ -1,5 +1,7 @@
 @echo off
 echo 🚀 Iniciando Lia Vault On-Premise Suite (Contenedor Docker)...
+if not exist datos mkdir datos
+if not exist registros mkdir registros
 docker-compose up -d --build
 echo ⏳ Esperando a que el servidor web este completamente listo...
 :check_loop

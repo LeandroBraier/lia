@@ -1,20 +1,14 @@
-.git
-.gitignore
-.DS_Store
-*.zip
-*.dmg
-*.pyc
-__pycache__
-*.egg-info
-.env
-1_Pack_Con_Docker
-2_Pack_Nativo_Sin_Docker
-🍏 MAC_DOCKER
-🪟 WINDOWS_DOCKER
-🐧 LINUX_DOCKER
-INSTRUCCIONES_DOCKER.txt
-licencia.key
-Llaves
-*.lvkey
-.vault_log.db
-Registros
+# Lista de permitidos: al contexto de Docker solo va lo que copia el Dockerfile.
+*
+!Dockerfile
+!requirements.txt
+!app_grafica.py
+!app_offline.py
+!validador.py
+!llaves.py
+!auditoria.py
+!i18n.py
+!metadata.json
+!assets
+!config
+config/settings.json

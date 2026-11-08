@@ -1,16 +1,28 @@
+# Lia Vault en Docker, endurecido (H3). Antes del primer arranque:
+#   - Definir LIA_VAULT_FRASE_MAESTRA en .env (protege las llaves; si se pierde, no se pueden abrir).
+#   - La licencia va en ./datos/licencia.key (o se carga desde la app).
+# Los scripts iniciar_docker_* crean ./datos y ./registros con el usuario del equipo.
 services:
   lia-vault:
     build: .
+    image: lia-vault:local
     container_name: lia_vault_app
+    user: "${LIA_UID:-10001}:${LIA_GID:-10001}"
     ports:
-      - "8502:8502"
+      - "127.0.0.1:8502:8502"   # solo accesible desde este equipo
     volumes:
-      - ./entrada:/app/entrada
-      - ./salida:/app/Archivos seguros de Checkpoint Ley IA
-      - ./procesados:/app/procesados
-      - ./diccionario_corporativo.txt:/app/diccionario_corporativo.txt
-      - ./licencia.key:/app/licencia.key
-      - ./Llaves:/app/Llaves
+      - ./datos:/datos                       # Entrada, Seudonimizados, Anonimizados, Restaurados, Llaves, config, licencia
+      - ./registros:/var/log/lia_vault       # registro de auditoría firmado
     environment:
-      - LIA_VAULT_FRASE_MAESTRA
+      LIA_VAULT_FRASE_MAESTRA: ${LIA_VAULT_FRASE_MAESTRA:?Defina LIA_VAULT_FRASE_MAESTRA en .env (mínimo 12 caracteres)}
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 1.0
+    mem_limit: ${LIA_MEM:-1g}
+    pids_limit: 256
     restart: unless-stopped

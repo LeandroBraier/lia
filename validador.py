@@ -71,6 +71,13 @@ def _dir_recursos():
 
 class ValidadorLicencia:
     def __init__(self, ruta_licencia=None, ruta_db_oculta=None, ruta_prueba=None):
+        base = os.environ.get("LIA_VAULT_BASE")
+        if base:
+            os.makedirs(base, exist_ok=True)
+            self.ruta_licencia = ruta_licencia or os.path.join(base, NOMBRE_LICENCIA)
+            self.ruta_db_oculta = ruta_db_oculta or os.path.join(base, ".vault_log.db")
+            self.ruta_prueba = ruta_prueba or os.path.join(_dir_recursos(), NOMBRE_LICENCIA_PRUEBA)
+            return
         dir_actual = os.getcwd()
         archivo_prueba = os.path.join(dir_actual, ".test_write_perm")
         es_escribible = True

@@ -8,6 +8,7 @@ import os
 import re
 import json
 import shutil
+import tempfile
 
 import auditoria
 import llaves
@@ -62,8 +63,9 @@ except ImportError:
     Image = None
 
 # 1. Configuración de rutas corporativas y soporte multiidioma
-_base_dir = os.path.dirname(os.path.abspath(__file__))
-if not os.access(_base_dir, os.W_OK) or _base_dir.startswith("/Volumes/"):
+# LIA_VAULT_BASE fija la carpeta de datos (en Docker, el volumen /datos; el código queda de solo lectura).
+_base_dir = os.environ.get("LIA_VAULT_BASE") or os.path.dirname(os.path.abspath(__file__))
+if not os.environ.get("LIA_VAULT_BASE") and (not os.access(_base_dir, os.W_OK) or _base_dir.startswith("/Volumes/")):
     _base_dir = os.path.join(os.path.expanduser("~"), "LiaVault")
 
 NOMBRES_CARPETAS = {
@@ -1316,14 +1318,17 @@ def procesar_pdf(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=None)
             raise MotorNoDisponibleError("El PDF tiene páginas escaneadas y el OCR no está disponible.")
         if not texto_pagina.strip() and lector_ocr:
             pix = pagina.get_pixmap(dpi=200)
-            ruta_tmp = f"tmp_pag_{num_pag}.png"
-            pix.save(ruta_tmp)
-            # Las entradas OCR de la página van a la llave del PDF, con un prefijo para no chocar entre páginas.
-            mapa_pagina = procesar_imagen_ocr(ruta_tmp, ruta_tmp, None, carpeta_salida=target_salida, guardar_llave=False)
-            for token, valor in mapa_pagina.items():
-                mapas_acumulados[token.replace("[IMAGE_PII_", f"[PAG{num_pag + 1}_IMAGE_PII_")] = valor
-            pagina.insert_image(pagina.rect, filename=ruta_tmp)
-            if os.path.exists(ruta_tmp):
+            fd_tmp, ruta_tmp = tempfile.mkstemp(prefix="liavault_pag_", suffix=".png")
+            os.close(fd_tmp)
+            # La imagen temporal tiene la página sin tapar: se borra aunque falle el OCR.
+            try:
+                pix.save(ruta_tmp)
+                # Las entradas OCR de la página van a la llave del PDF, con un prefijo para no chocar entre páginas.
+                mapa_pagina = procesar_imagen_ocr(ruta_tmp, ruta_tmp, None, carpeta_salida=target_salida, guardar_llave=False)
+                for token, valor in mapa_pagina.items():
+                    mapas_acumulados[token.replace("[IMAGE_PII_", f"[PAG{num_pag + 1}_IMAGE_PII_")] = valor
+                pagina.insert_image(pagina.rect, filename=ruta_tmp)
+            finally:
                 os.remove(ruta_tmp)
                     
     doc.save(ruta_destino, garbage=4, deflate=True)
@@ -1943,11 +1948,14 @@ def procesar_pdf_real(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=
             raise MotorNoDisponibleError("El PDF tiene páginas escaneadas y el OCR no está disponible.")
         if not texto_pagina.strip() and lector_ocr:
             pix = pagina.get_pixmap(dpi=200)
-            ruta_tmp = f"tmp_pag_{num_pag}.png"
-            pix.save(ruta_tmp)
-            procesar_imagen_ocr_real(ruta_tmp, ruta_tmp, f"pag_{num_pag}_temp", carpeta_salida=target_salida)
-            pagina.insert_image(pagina.rect, filename=ruta_tmp)
-            if os.path.exists(ruta_tmp):
+            fd_tmp, ruta_tmp = tempfile.mkstemp(prefix="liavault_pag_", suffix=".png")
+            os.close(fd_tmp)
+            # La imagen temporal tiene la página sin tapar: se borra aunque falle el OCR.
+            try:
+                pix.save(ruta_tmp)
+                procesar_imagen_ocr_real(ruta_tmp, ruta_tmp, f"pag_{num_pag}_temp", carpeta_salida=target_salida)
+                pagina.insert_image(pagina.rect, filename=ruta_tmp)
+            finally:
                 os.remove(ruta_tmp)
                     
     limpiar_metadatos_pdf(doc)

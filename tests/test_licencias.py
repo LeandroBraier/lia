@@ -129,6 +129,12 @@ class TestLicencias(unittest.TestCase):
                 with open(self.v.ruta_licencia, encoding="utf-8") as f:
                     self.assertEqual(f.read(), actual)
 
+    def test_carpeta_de_datos_de_docker(self):
+        with patch.dict(os.environ, {"LIA_VAULT_BASE": self.dir}):
+            v = validador.ValidadorLicencia()
+        self.assertEqual(v.ruta_licencia, os.path.join(self.dir, "licencia.key"))
+        self.assertEqual(v.ruta_db_oculta, os.path.join(self.dir, ".vault_log.db"))
+
     def test_la_app_no_contiene_firma_ni_salt(self):
         codigo = open(validador.__file__, encoding="utf-8").read()
         self.assertNotIn("SALT", codigo)

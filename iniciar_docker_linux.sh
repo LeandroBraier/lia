@@ -2,6 +2,8 @@
 cd "$(dirname "$0")"
 echo "🚀 Iniciando Lia Vault On-Premise Suite (Contenedor Docker)..."
 if command -v docker &>/dev/null; then
+    mkdir -p datos registros
+    export LIA_UID="$(id -u)" LIA_GID="$(id -g)"
     docker-compose up -d --build || docker compose up -d --build
     echo "⏳ Esperando a que el servidor web este completamente listo..."
     

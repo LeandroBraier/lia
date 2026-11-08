@@ -11,6 +11,8 @@ if ! docker info &>/dev/null; then
     exit 1
 fi
 
+mkdir -p datos registros
+export LIA_UID="$(id -u)" LIA_GID="$(id -g)"
 if docker-compose up -d --build || docker compose up -d --build; then
     echo "⏳ Esperando a que la aplicación Flet/Web termine de inicializarse..."
     

@@ -9,7 +9,7 @@ import os
 import json
 import locale
 
-CONFIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
+CONFIG_DIR = os.path.join(os.environ.get("LIA_VAULT_BASE") or os.path.dirname(os.path.abspath(__file__)), "config")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "settings.json")
 
 TRANSLATIONS = {
