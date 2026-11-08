@@ -69,3 +69,7 @@ ficha-relevamiento-*
 # Registro de auditoría (metadatos firmados de cada instalación)
 Registros/
 *.log
+
+# Volúmenes de Docker: documentos, llaves, licencia y registro del cliente
+datos/
+registros/
