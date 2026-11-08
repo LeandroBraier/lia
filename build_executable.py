@@ -58,6 +58,7 @@ def construir_ejecutable_nativo():
         f"--add-data=app_offline.py{sep}.",
         f"--add-data=validador.py{sep}.",
         f"--add-data=llaves.py{sep}.",
+        f"--add-data=auditoria.py{sep}.",
         "--hidden-import=spacy",
         "--hidden-import=es_core_news_sm",
         "--hidden-import=presidio_analyzer",

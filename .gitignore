@@ -65,3 +65,7 @@ Llaves/
 # Documentos internos: auditoría de seguridad y fichas con contactos de clientes
 AUDITORÍA DE SEGURIDAD*.md
 ficha-relevamiento-*
+
+# Registro de auditoría (metadatos firmados de cada instalación)
+Registros/
+*.log

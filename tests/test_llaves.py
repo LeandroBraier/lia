@@ -143,6 +143,14 @@ class TestMotorConLlaves(BaseLlaves):
         mapa = llaves.leer_llave_archivo(ruta, self.carpeta)
         self.assertIn("maria@test.com", mapa.values())
 
+        with open(self.app.registro.ruta, encoding="utf-8") as f:
+            registro = f.read()
+        self.assertNotIn("María", registro)
+        self.assertNotIn("maria@test.com", registro)
+        evento = json.loads(registro.splitlines()[-1])
+        self.assertEqual((evento["evento"], evento["estado"], evento["ext"]), ("seudonimizacion", "ok", ".txt"))
+        self.assertTrue(evento["entidades"])
+
     def test_sin_clave_maestra_no_procesa(self):
         with patch.object(llaves, "_clave_desde_llavero", return_value=None), patch.dict(os.environ, {}, clear=False):
             os.environ.pop(llaves.VARIABLE_FRASE, None)

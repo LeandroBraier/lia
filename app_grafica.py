@@ -79,6 +79,7 @@ from app_offline import (
     documentos_con_llave,
 )
 import app_offline
+import auditoria
 from llaves import LlaveError, leer_llave, leer_llave_archivo
 from i18n import t, get_current_language, set_current_language
 
@@ -1544,6 +1545,7 @@ async def main(page: ft.Page):
                 else:
                     txt_anon = tf_texto_anonimizado.value or ""
                     res = revertir_anonimizacion(txt_anon, mapa_k)
+                    app_offline.registro.registrar("reversion", entidades=auditoria.contar_entidades(mapa_k))
                     tf_texto_restaurado.value = res
                     txt_info_key.value = f"✅ Llave aplicada exitosamente ({len(mapa_k)} términos des-seudonimizados)."
                     txt_info_key.color = EMERALD_GREEN

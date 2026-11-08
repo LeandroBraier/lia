@@ -9,6 +9,7 @@ import re
 import json
 import shutil
 
+import auditoria
 import llaves
 try:
     import pandas as pd
@@ -199,6 +200,12 @@ except Exception:
     _lang_init = "es"
 
 actualizar_rutas_idioma(_lang_init)
+
+# Registro de auditoría (H5): solo metadatos, firmado con una clave derivada de la clave maestra de las llaves.
+registro = auditoria.RegistroAuditoria(
+    os.environ.get(auditoria.VARIABLE_RUTA) or os.path.join(_base_dir, "Registros", auditoria.NOMBRE_ARCHIVO),
+    lambda: llaves.obtener_clave_maestra(CARPETA_LLAVES),
+)
 
 
 # 2. Inicializar IA local y Lector OCR
@@ -1102,6 +1109,7 @@ def ejecutar_reversion_archivo(ruta_origen, mapa_reversion, ruta_destino=None):
         with open(ruta_destino, "w", encoding="utf-8") as f:
             f.write(restaurado)
 
+    registro.registrar("reversion", ruta_archivo=ruta_origen, entidades=auditoria.contar_entidades(mapa_reversion))
     return ruta_destino
 
 
@@ -1436,15 +1444,20 @@ def ejecutar_procesamiento_lotes(carpeta_salida=None, archivo_especifico=None):
                 os.remove(ruta_procesados)
             shutil.move(ruta_origen, ruta_procesados)
             procesados_exitosos += 1
+            ruta_llave_doc = llaves.ruta_llave(CARPETA_LLAVES, nombre_llave)
+            mapa_doc = llaves.leer_llave_archivo(ruta_llave_doc, CARPETA_LLAVES) if os.path.exists(ruta_llave_doc) else {}
+            registro.registrar("seudonimizacion", ruta_archivo=ruta_procesados, entidades=auditoria.contar_entidades(mapa_doc))
             print(f"✅ Procesado y movido a /procesados: {nombre_archivo}")
 
         except IdiomaNoSoportadoError as e_lang:
             _eliminar_salida_parcial(target_salida, ruta_destino, nombre_llave)
+            registro.registrar("seudonimizacion", "rechazado", ruta_archivo=ruta_origen, error=e_lang)
             print(f"⚠️ Archivo rechazado por idioma no soportado {nombre_archivo}: {e_lang}")
             if archivo_especifico:
                 raise e_lang
         except Exception as e:
             _eliminar_salida_parcial(target_salida, ruta_destino, nombre_llave)
+            registro.registrar("seudonimizacion", "error", ruta_archivo=ruta_origen, error=e)
             print(f"❌ Error al procesar {nombre_archivo}: {type(e).__name__}")
             if archivo_especifico:
                 raise e
@@ -2039,15 +2052,18 @@ def ejecutar_anonimizacion_real_lotes(carpeta_salida=None, k_umbral=3, generaliz
                 os.remove(ruta_procesados)
             shutil.move(ruta_origen, ruta_procesados)
             procesados_exitosos += 1
+            registro.registrar("anonimizacion", ruta_archivo=ruta_procesados)
             print(f"✅ Anonimizado (RGPD) y movido a /procesados: {nombre_archivo}")
 
         except IdiomaNoSoportadoError as e_lang:
             _eliminar_salida_parcial(target_salida, ruta_destino, nombre_archivo)
+            registro.registrar("anonimizacion", "rechazado", ruta_archivo=ruta_origen, error=e_lang)
             print(f"⚠️ Archivo rechazado por idioma no soportado {nombre_archivo}: {e_lang}")
             if archivo_especifico:
                 raise e_lang
         except Exception as e:
             _eliminar_salida_parcial(target_salida, ruta_destino, nombre_archivo)
+            registro.registrar("anonimizacion", "error", ruta_archivo=ruta_origen, error=e)
             print(f"❌ Error al anonimizar {nombre_archivo}: {type(e).__name__}")
             if archivo_especifico:
                 raise e
