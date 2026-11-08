@@ -14,4 +14,6 @@ __pycache__
 🐧 LINUX_DOCKER
 INSTRUCCIONES_DOCKER.txt
 licencia.key
+Llaves
+*.lvkey
 .vault_log.db

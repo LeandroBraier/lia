@@ -57,6 +57,7 @@ def construir_ejecutable_nativo():
         f"--add-data=metadata.json{sep}.",
         f"--add-data=app_offline.py{sep}.",
         f"--add-data=validador.py{sep}.",
+        f"--add-data=llaves.py{sep}.",
         "--hidden-import=spacy",
         "--hidden-import=es_core_news_sm",
         "--hidden-import=presidio_analyzer",
@@ -74,6 +75,8 @@ def construir_ejecutable_nativo():
         "--collect-all=flet",
         "--collect-all=flet_web",
         "--collect-all=flet_core",
+        # keyring descubre los backends del llavero por metadatos: sin esto el ejecutable no encuentra el Llavero.
+        "--collect-all=keyring",
         "--copy-metadata=spacy",
         "--copy-metadata=es_core_news_sm",
     ]

@@ -10,4 +10,7 @@ services:
       - ./procesados:/app/procesados
       - ./diccionario_corporativo.txt:/app/diccionario_corporativo.txt
       - ./licencia.key:/app/licencia.key
+      - ./Llaves:/app/Llaves
+    environment:
+      - LIA_VAULT_FRASE_MAESTRA
     restart: unless-stopped

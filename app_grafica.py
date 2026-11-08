@@ -74,8 +74,12 @@ from app_offline import (
     CARPETA_RESTAURADOS,
     CARPETA_PROCESADOS,
     cargar_diccionario_corporativo,
-    RUTA_DICCIONARIO
+    RUTA_DICCIONARIO,
+    buscar_llave,
+    documentos_con_llave,
 )
+import app_offline
+from llaves import LlaveError, leer_llave, leer_llave_archivo
 from i18n import t, get_current_language, set_current_language
 
 # Paleta de colores "Lia Vault Premium Suite"
@@ -292,14 +296,15 @@ async def main(page: ft.Page):
         dlg = ft.AlertDialog(
             title=ft.Row([
                 ft.Icon(ft.icons.VPN_KEY, color=ACCENT_ORANGE, size=20),
-                ft.Text("Llave Criptográfica (.key)", size=13, weight=ft.FontWeight.BOLD, color="#FFFFFF")
+                ft.Text("Llave de reversión cifrada", size=13, weight=ft.FontWeight.BOLD, color="#FFFFFF")
             ]),
             content=ft.Container(
                 content=ft.Column([
                     ft.Text(f"Documento: {nombre_doc}", size=11, weight=ft.FontWeight.BOLD, color=NEON_BLUE),
                     ft.Text(
-                        "Este archivo contiene la matriz de tokens y datos sensibles generada por Lia Vault para la Traducción Inversa.\n\n"
-                        "Está estructurado para lectura interna de la plataforma y no debe ser modificado ni abierto con programas externos (como Apple Keynote).",
+                        "Esta llave contiene la tabla de tokens y datos originales que usa la Traducción Inversa. "
+                        "Está cifrada con la clave maestra guardada en el llavero de este equipo: copiada a otro equipo no se puede abrir.\n\n"
+                        f"Ubicación: {ruta_k}",
                         size=11, color="#E2E8F0"
                     )
                 ], spacing=8),
@@ -457,9 +462,7 @@ async def main(page: ft.Page):
         else:
             for f in archivos_sal:
                 ruta_doc = os.path.join(carpeta_salida_configurada, f)
-                ruta_key1 = os.path.join(carpeta_salida_configurada, f"{f}.key")
-                ruta_key2 = os.path.join(carpeta_salida_configurada, f"{f}.reverse.key")
-                ruta_key = ruta_key1 if os.path.exists(ruta_key1) else (ruta_key2 if os.path.exists(ruta_key2) else None)
+                ruta_key = buscar_llave(f, carpeta_salida_configurada)
 
                 es_reciente = False
                 if ultimo_archivo_procesado:
@@ -706,12 +709,7 @@ async def main(page: ft.Page):
     def refrescar_dropdown_archivos_traduccion():
         dd_archivo_origen_key.options.clear()
         opciones = []
-        if os.path.exists(carpeta_salida_configurada):
-            for f in os.listdir(carpeta_salida_configurada):
-                if f.endswith(".key"):
-                    nombre_orig = f.replace(".reverse.key", "").replace(".key", "")
-                    if nombre_orig not in opciones:
-                        opciones.append(nombre_orig)
+        opciones.extend(documentos_con_llave(carpeta_salida_configurada))
         if os.path.exists(CARPETA_PROCESADOS):
             for f in os.listdir(CARPETA_PROCESADOS):
                 if not f.startswith(".") and f not in opciones:
@@ -779,11 +777,11 @@ async def main(page: ft.Page):
                 if content_str:
                     nonlocal mapa_key_cargado_traduccion
                     try:
-                        mapa_key_cargado_traduccion = json.loads(content_str)
+                        mapa_key_cargado_traduccion = leer_llave(content_str, app_offline.CARPETA_LLAVES)
                         txt_info_key.value = f"✅ Llave cargada manualmente: {f.name}"
                         txt_info_key.color = EMERALD_GREEN
-                    except Exception:
-                        txt_info_key.value = "❌ Archivo de llave no válido"
+                    except LlaveError as ex_llave:
+                        txt_info_key.value = f"❌ {ex_llave}"
                         txt_info_key.color = CRIMSON_ERROR
                     page.update()
         except Exception as ex:
@@ -923,6 +921,13 @@ async def main(page: ft.Page):
         nonlocal carpeta_salida_configurada, carpeta_salida_anonimizada_configurada
         carpeta_salida_configurada = os.path.abspath(CARPETA_SALIDA_DEFECTO)
         carpeta_salida_anonimizada_configurada = os.path.abspath(CARPETA_SALIDA_ANONIMIZADA)
+
+        try:
+            migradas, omitidas = app_offline.migrar_llaves_antiguas(carpeta_salida_configurada)
+            if migradas or omitidas:
+                print(f"🔐 Llaves antiguas cifradas: {migradas}. No migradas (revisar): {omitidas}.")
+        except (LlaveError, OSError) as ex_mig:
+            print(f"⚠️ No se pudieron cifrar las llaves antiguas: {type(ex_mig).__name__}")
 
         # Re-registrar servicio FilePicker en caso de reconstrucción del árbol
         try:
@@ -1501,27 +1506,18 @@ async def main(page: ft.Page):
             doc_sel = dd_archivo_origen_key.value
 
             mapa_k = mapa_key_cargado_traduccion
+            error_llave = None
             if not mapa_k and doc_sel:
-                k1 = os.path.join(carpeta_salida_configurada, f"{doc_sel}.key")
-                k2 = os.path.join(carpeta_salida_configurada, f"{doc_sel}.reverse.key")
-                ruta_k = k1 if os.path.exists(k1) else (k2 if os.path.exists(k2) else None)
-
-                if not ruta_k:
-                    for f in os.listdir(carpeta_salida_configurada):
-                        if f.startswith(doc_sel) and f.endswith(".key"):
-                            ruta_k = os.path.join(carpeta_salida_configurada, f)
-                            break
-
+                ruta_k = buscar_llave(doc_sel, carpeta_salida_configurada)
                 if ruta_k:
                     try:
-                        with open(ruta_k, "r", encoding="utf-8") as fk:
-                            mapa_k = json.load(fk)
-                    except Exception:
-                        pass
+                        mapa_k = leer_llave_archivo(ruta_k, app_offline.CARPETA_LLAVES)
+                    except (LlaveError, OSError, ValueError) as ex_llave:
+                        error_llave = str(ex_llave)
 
             if not mapa_k:
-                tf_texto_restaurado.value = f"⚠️ No se encontró la llave .key para la desanonimización."
-                txt_info_key.value = "Seleccione el documento de origen o cargue manualmente la llave .key arriba."
+                tf_texto_restaurado.value = f"⚠️ {error_llave or 'No se encontró la llave del documento.'}"
+                txt_info_key.value = "Seleccione el documento de origen o cargue manualmente su llave arriba."
                 txt_info_key.color = CRIMSON_ERROR
                 page.update()
                 return

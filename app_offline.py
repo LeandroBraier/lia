@@ -8,6 +8,8 @@ import os
 import re
 import json
 import shutil
+
+import llaves
 try:
     import pandas as pd
 except ImportError:
@@ -108,7 +110,7 @@ def _mover_contenido_carpeta(origen, destino):
 def actualizar_rutas_idioma(lang="es"):
     """Actualiza y migra las carpetas según el idioma activo (ES o EN)."""
     global CARPETA_ENTRADA, CARPETA_SALIDA_DEFECTO, CARPETA_SALIDA_ANONIMIZADA, CARPETA_SALIDA
-    global CARPETA_RESTAURADOS, CARPETA_PROCESADOS, CARPETA_CONFIG, RUTA_DICCIONARIO
+    global CARPETA_RESTAURADOS, CARPETA_PROCESADOS, CARPETA_CONFIG, RUTA_DICCIONARIO, CARPETA_LLAVES
 
     idioma = "en" if lang.lower().startswith("en") else "es"
     idioma_previo = "es" if idioma == "en" else "en"
@@ -161,9 +163,12 @@ def actualizar_rutas_idioma(lang="es"):
     CARPETA_PROCESADOS = target_procesados
     CARPETA_CONFIG = target_config
     RUTA_DICCIONARIO = os.path.join(CARPETA_CONFIG, "diccionario_exclusiones.txt")
+    # Las llaves de reversión no cambian de carpeta con el idioma y nunca van junto a los documentos.
+    CARPETA_LLAVES = os.path.join(_base_dir, "Llaves")
 
     for p in [CARPETA_ENTRADA, CARPETA_SALIDA_DEFECTO, CARPETA_SALIDA_ANONIMIZADA, CARPETA_RESTAURADOS, CARPETA_PROCESADOS, CARPETA_CONFIG]:
         os.makedirs(p, exist_ok=True)
+    llaves.preparar_carpeta(CARPETA_LLAVES)
 
     if not os.path.exists(RUTA_DICCIONARIO):
         try:
@@ -182,7 +187,8 @@ def actualizar_rutas_idioma(lang="es"):
         "anonimizados": CARPETA_SALIDA_ANONIMIZADA,
         "restaurados": CARPETA_RESTAURADOS,
         "procesados": CARPETA_PROCESADOS,
-        "config": CARPETA_CONFIG
+        "config": CARPETA_CONFIG,
+        "llaves": CARPETA_LLAVES
     }
 
 # Inicializar carpetas al idioma por defecto
@@ -1304,7 +1310,10 @@ def procesar_pdf(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=None)
             pix = pagina.get_pixmap(dpi=200)
             ruta_tmp = f"tmp_pag_{num_pag}.png"
             pix.save(ruta_tmp)
-            procesar_imagen_ocr(ruta_tmp, ruta_tmp, f"pag_{num_pag}_temp", carpeta_salida=target_salida)
+            # Las entradas OCR de la página van a la llave del PDF, con un prefijo para no chocar entre páginas.
+            mapa_pagina = procesar_imagen_ocr(ruta_tmp, ruta_tmp, None, carpeta_salida=target_salida, guardar_llave=False)
+            for token, valor in mapa_pagina.items():
+                mapas_acumulados[token.replace("[IMAGE_PII_", f"[PAG{num_pag + 1}_IMAGE_PII_")] = valor
             pagina.insert_image(pagina.rect, filename=ruta_tmp)
             if os.path.exists(ruta_tmp):
                 os.remove(ruta_tmp)
@@ -1313,12 +1322,10 @@ def procesar_pdf(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=None)
     doc.close()
     
     if mapas_acumulados:
-        ruta_llave = os.path.join(target_salida, f"{nombre_archivo}.reverse.key")
-        with open(ruta_llave, "w", encoding="utf-8") as f:
-            json.dump(mapas_acumulados, f, indent=4, ensure_ascii=False)
+        guardar_llave_key(target_salida, nombre_archivo, mapas_acumulados)
 
 
-def procesar_imagen_ocr(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=None):
+def procesar_imagen_ocr(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=None, guardar_llave=True):
     if not cv2 or not lector_ocr:
         raise MotorNoDisponibleError("El OCR (EasyOCR/OpenCV) no está disponible: no se pueden procesar imágenes.")
     exigir_motor()
@@ -1355,18 +1362,16 @@ def procesar_imagen_ocr(ruta_origen, ruta_destino, nombre_archivo, carpeta_salid
                 mapas_acumulados[f"[IMAGE_PII_{len(mapas_acumulados)+1}]"] = texto_detectado
 
     cv2.imwrite(ruta_destino, imagen_cv)
-    if mapas_acumulados:
-        ruta_llave = os.path.join(target_salida, f"{nombre_archivo}.reverse.key")
-        with open(ruta_llave, "w", encoding="utf-8") as f:
-            json.dump(mapas_acumulados, f, indent=4, ensure_ascii=False)
+    if mapas_acumulados and guardar_llave:
+        guardar_llave_key(target_salida, nombre_archivo, mapas_acumulados)
+    return mapas_acumulados
 
 
 def _eliminar_salida_parcial(target_salida, ruta_destino, nombre_archivo):
     """Borra lo que haya quedado de un archivo que falló: salida, llaves y certificado."""
     nombre_base = os.path.splitext(nombre_archivo)[0]
     for ruta in (ruta_destino,
-                 os.path.join(target_salida, f"{nombre_archivo}.key"),
-                 os.path.join(target_salida, f"{nombre_archivo}.reverse.key"),
+                 llaves.ruta_llave(CARPETA_LLAVES, nombre_archivo),
                  os.path.join(target_salida, f"Certificado_Anonimizacion_{nombre_base}.txt")):
         try:
             if os.path.exists(ruta):
@@ -1377,6 +1382,8 @@ def _eliminar_salida_parcial(target_salida, ruta_destino, nombre_archivo):
 
 def ejecutar_procesamiento_lotes(carpeta_salida=None, archivo_especifico=None):
     exigir_motor()
+    # Sin clave maestra no se podrían guardar las llaves: se falla antes de tocar ningún archivo.
+    llaves.obtener_clave_maestra(CARPETA_LLAVES)
     target_salida = carpeta_salida or CARPETA_SALIDA_DEFECTO
     os.makedirs(target_salida, exist_ok=True)
     os.makedirs(CARPETA_PROCESADOS, exist_ok=True)
@@ -1399,24 +1406,26 @@ def ejecutar_procesamiento_lotes(carpeta_salida=None, archivo_especifico=None):
         nombre_sanitizado, fn_map = sanitizar_nombre_archivo(nombre_archivo, carpeta_salida=target_salida)
         ruta_destino = os.path.join(target_salida, nombre_sanitizado)
         ext = nombre_archivo.lower()
-        
+        # La llave se nombra como la salida, no como el original: el nombre original puede contener PII.
+        nombre_llave = nombre_sanitizado
+
         try:
             if ext.endswith(".txt"):
-                procesar_archivo_texto(ruta_origen, ruta_destino, nombre_archivo, target_salida)
+                procesar_archivo_texto(ruta_origen, ruta_destino, nombre_llave, target_salida)
             elif ext.endswith(".md"):
-                procesar_markdown(ruta_origen, ruta_destino, nombre_archivo, target_salida)
+                procesar_markdown(ruta_origen, ruta_destino, nombre_llave, target_salida)
             elif ext.endswith(".json"):
-                procesar_json(ruta_origen, ruta_destino, nombre_archivo, target_salida)
+                procesar_json(ruta_origen, ruta_destino, nombre_llave, target_salida)
             elif ext.endswith(".csv"):
-                procesar_tabla_csv(ruta_origen, ruta_destino, nombre_archivo, target_salida)
+                procesar_tabla_csv(ruta_origen, ruta_destino, nombre_llave, target_salida)
             elif ext.endswith(".docx"):
-                procesar_documento_word(ruta_origen, ruta_destino, nombre_archivo, target_salida)
+                procesar_documento_word(ruta_origen, ruta_destino, nombre_llave, target_salida)
             elif ext.endswith(".xlsx"):
-                procesar_excel(ruta_origen, ruta_destino, nombre_archivo, target_salida)
+                procesar_excel(ruta_origen, ruta_destino, nombre_llave, target_salida)
             elif ext.endswith(".pdf"):
-                procesar_pdf(ruta_origen, ruta_destino, nombre_archivo, target_salida)
+                procesar_pdf(ruta_origen, ruta_destino, nombre_llave, target_salida)
             elif ext.endswith((".jpg", ".jpeg", ".png")):
-                procesar_imagen_ocr(ruta_origen, ruta_destino, nombre_archivo, target_salida)
+                procesar_imagen_ocr(ruta_origen, ruta_destino, nombre_llave, target_salida)
             else:
                 print(f"⚠️ Formato no compatible: {nombre_archivo}")
                 continue
@@ -1430,12 +1439,12 @@ def ejecutar_procesamiento_lotes(carpeta_salida=None, archivo_especifico=None):
             print(f"✅ Procesado y movido a /procesados: {nombre_archivo}")
 
         except IdiomaNoSoportadoError as e_lang:
-            _eliminar_salida_parcial(target_salida, ruta_destino, nombre_archivo)
+            _eliminar_salida_parcial(target_salida, ruta_destino, nombre_llave)
             print(f"⚠️ Archivo rechazado por idioma no soportado {nombre_archivo}: {e_lang}")
             if archivo_especifico:
                 raise e_lang
         except Exception as e:
-            _eliminar_salida_parcial(target_salida, ruta_destino, nombre_archivo)
+            _eliminar_salida_parcial(target_salida, ruta_destino, nombre_llave)
             print(f"❌ Error al procesar {nombre_archivo}: {type(e).__name__}")
             if archivo_especifico:
                 raise e
@@ -1444,17 +1453,41 @@ def ejecutar_procesamiento_lotes(carpeta_salida=None, archivo_especifico=None):
 
 
 def guardar_llave_key(target_salida, nombre_archivo, key_map):
+    """Guarda la llave cifrada del documento en CARPETA_LLAVES. Si no se puede, falla: sin llave no hay reversión."""
     if not key_map or not nombre_archivo:
         return
-    r1 = os.path.join(target_salida, f"{nombre_archivo}.key")
-    r2 = os.path.join(target_salida, f"{nombre_archivo}.reverse.key")
-    try:
-        with open(r1, "w", encoding="utf-8") as f:
-            json.dump(key_map, f, indent=4, ensure_ascii=False)
-        with open(r2, "w", encoding="utf-8") as f:
-            json.dump(key_map, f, indent=4, ensure_ascii=False)
-    except Exception as e:
-        print(f"Error guardando .key: {e}")
+    llaves.guardar_llave(CARPETA_LLAVES, nombre_archivo, key_map)
+
+
+def buscar_llave(nombre_documento, carpeta_salida=None):
+    """Ruta de la llave de un documento: la cifrada en CARPETA_LLAVES o, si no hay, una .key antigua junto a la salida."""
+    ruta = llaves.ruta_llave(CARPETA_LLAVES, nombre_documento)
+    if os.path.exists(ruta):
+        return ruta
+    carpeta = carpeta_salida or CARPETA_SALIDA_DEFECTO
+    for sufijo in (".key", ".reverse.key"):
+        antigua = os.path.join(carpeta, f"{nombre_documento}{sufijo}")
+        if os.path.exists(antigua):
+            return antigua
+    return None
+
+
+def migrar_llaves_antiguas(carpeta_salida=None):
+    """Cifra las llaves en claro de versiones anteriores que haya en las carpetas de seudonimizados."""
+    carpetas = {os.path.join(_base_dir, cfg["seudonimizados"]) for cfg in NOMBRES_CARPETAS.values()}
+    carpetas.add(carpeta_salida or CARPETA_SALIDA_DEFECTO)
+    return llaves.migrar_llaves_antiguas(sorted(carpetas), CARPETA_LLAVES)
+
+
+def documentos_con_llave(carpeta_salida=None):
+    """Nombres de los documentos que tienen llave de reversión (cifrada o antigua)."""
+    nombres = set()
+    if os.path.isdir(CARPETA_LLAVES):
+        nombres.update(f[:-len(llaves.EXTENSION)] for f in os.listdir(CARPETA_LLAVES) if f.endswith(llaves.EXTENSION))
+    carpeta = carpeta_salida or CARPETA_SALIDA_DEFECTO
+    if os.path.isdir(carpeta):
+        nombres.update(f.replace(".reverse.key", "").replace(".key", "") for f in os.listdir(carpeta) if f.endswith(".key"))
+    return sorted(nombres)
 
 
 def desanonimizar_texto(texto_anonimizado, mapa_llave):
