@@ -1395,6 +1395,21 @@ def _eliminar_salida_parcial(target_salida, ruta_destino, nombre_archivo):
             print(f"⚠️ No se pudo borrar una salida parcial en {target_salida}")
 
 
+def _nombre_salida_libre(carpeta, nombre, carpeta_llaves=None):
+    """
+    Nombre de salida que no pisa otro documento ni su llave. Distintos originales pueden quedar con el mismo
+    nombre seudonimizado (p. ej. [PERSONA_1].xlsx): sin esto, el último sobrescribía la salida y la llave del anterior.
+    """
+    base, ext = os.path.splitext(nombre)
+    candidato, n = nombre, 1
+    while os.path.exists(os.path.join(carpeta, candidato)) or (
+        carpeta_llaves and os.path.exists(llaves.ruta_llave(carpeta_llaves, candidato))
+    ):
+        n += 1
+        candidato = f"{base}_{n}{ext}"
+    return candidato
+
+
 def ejecutar_procesamiento_lotes(carpeta_salida=None, archivo_especifico=None):
     exigir_motor()
     # Sin clave maestra no se podrían guardar las llaves: se falla antes de tocar ningún archivo.
@@ -1419,6 +1434,7 @@ def ejecutar_procesamiento_lotes(carpeta_salida=None, archivo_especifico=None):
     for nombre_archivo in archivos:
         ruta_origen = os.path.join(CARPETA_ENTRADA, nombre_archivo)
         nombre_sanitizado, fn_map = sanitizar_nombre_archivo(nombre_archivo, carpeta_salida=target_salida)
+        nombre_sanitizado = _nombre_salida_libre(target_salida, nombre_sanitizado, CARPETA_LLAVES)
         ruta_destino = os.path.join(target_salida, nombre_sanitizado)
         ext = nombre_archivo.lower()
         # La llave se nombra como la salida, no como el original: el nombre original puede contener PII.
@@ -2032,7 +2048,7 @@ def ejecutar_anonimizacion_real_lotes(carpeta_salida=None, k_umbral=3, generaliz
     
     for nombre_archivo in archivos:
         ruta_origen = os.path.join(CARPETA_ENTRADA, nombre_archivo)
-        nombre_sanitizado = sanitizar_nombre_archivo_real(nombre_archivo)
+        nombre_sanitizado = _nombre_salida_libre(target_salida, sanitizar_nombre_archivo_real(nombre_archivo))
         ruta_destino = os.path.join(target_salida, nombre_sanitizado)
         ext = nombre_archivo.lower()
         

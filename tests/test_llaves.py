@@ -151,6 +151,19 @@ class TestMotorConLlaves(BaseLlaves):
         self.assertEqual((evento["evento"], evento["estado"], evento["ext"]), ("seudonimizacion", "ok", ".txt"))
         self.assertTrue(evento["entidades"])
 
+    def test_mismo_nombre_seudonimizado_no_pisa_la_llave_anterior(self):
+        if self.app.analyzer is None:
+            self.skipTest("motor de IA no disponible")
+        os.remove(os.path.join(self.app.CARPETA_ENTRADA, "nota.txt"))
+        for correo in ("ana@test.com", "luis@test.com"):
+            with open(os.path.join(self.app.CARPETA_ENTRADA, "Informe de Juan Pérez.txt"), "w", encoding="utf-8") as f:
+                f.write(f"El informe confidencial fue enviado ayer por la tarde. Para cualquier consulta, el correo es {correo}.")
+            self.assertEqual(self.app.ejecutar_procesamiento_lotes(carpeta_salida=self.salida), 1)
+        salidas = sorted(os.listdir(self.salida))
+        self.assertEqual(len(salidas), 2, salidas)
+        correos = {c for s in salidas for c in llaves.leer_llave_archivo(self.app.buscar_llave(s, self.salida), self.carpeta).values()}
+        self.assertTrue({"ana@test.com", "luis@test.com"} <= correos)
+
     def test_sin_clave_maestra_no_procesa(self):
         with patch.object(llaves, "_clave_desde_llavero", return_value=None), patch.dict(os.environ, {}, clear=False):
             os.environ.pop(llaves.VARIABLE_FRASE, None)
