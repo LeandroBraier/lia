@@ -261,8 +261,7 @@ async def main(page: ft.Page):
             contenido = f"Error al leer contenido: {ex}"
 
         def cerrar_dlg(e):
-            dlg.open = False
-            page.update()
+            page.pop_dialog()
 
         dlg = ft.AlertDialog(
             title=ft.Row([
@@ -279,9 +278,8 @@ async def main(page: ft.Page):
                 ft.TextButton("Cerrar", on_click=cerrar_dlg)
             ]
         )
-        page.dialog = dlg
-        dlg.open = True
-        page.update()
+        # Flet 0.86 ignora page.dialog: los diálogos se abren con show_dialog.
+        page.show_dialog(dlg)
 
     def abrir_documento_o_dialogo(nombre_doc, ruta_doc):
         if ES_DOCKER:
@@ -291,8 +289,7 @@ async def main(page: ft.Page):
 
     def mostrar_dialogo_key(nombre_doc, ruta_k):
         def cerrar_dlg(e):
-            dlg.open = False
-            page.update()
+            page.pop_dialog()
 
         dlg = ft.AlertDialog(
             title=ft.Row([
@@ -315,9 +312,8 @@ async def main(page: ft.Page):
                 ft.TextButton("Entendido", on_click=cerrar_dlg)
             ]
         )
-        page.dialog = dlg
-        dlg.open = True
-        page.update()
+        # Flet 0.86 ignora page.dialog: los diálogos se abren con show_dialog.
+        page.show_dialog(dlg)
 
     # --- LÓGICA DE PROCESAMIENTO EN 1 CLIC ---
     def click_procesar_individual(fname):
