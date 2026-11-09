@@ -1329,9 +1329,8 @@ def procesar_pdf(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=None)
             try:
                 pix.save(ruta_tmp)
                 # Las entradas OCR de la página van a la llave del PDF, con un prefijo para no chocar entre páginas.
-                mapa_pagina = procesar_imagen_ocr(ruta_tmp, ruta_tmp, None, carpeta_salida=target_salida, guardar_llave=False)
-                for token, valor in mapa_pagina.items():
-                    mapas_acumulados[token.replace("[IMAGE_PII_", f"[PAG{num_pag + 1}_IMAGE_PII_")] = valor
+                mapas_acumulados.update(procesar_imagen_ocr(ruta_tmp, ruta_tmp, None, carpeta_salida=target_salida,
+                                                            guardar_llave=False, prefijo=f"PAG{num_pag + 1}_"))
                 pagina.insert_image(pagina.rect, filename=ruta_tmp)
             finally:
                 os.remove(ruta_tmp)
@@ -1343,41 +1342,80 @@ def procesar_pdf(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=None)
         guardar_llave_key(target_salida, nombre_archivo, mapas_acumulados)
 
 
-def procesar_imagen_ocr(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=None, guardar_llave=True):
+def _tramos_sensibles_ocr(texto, terminos_corp):
+    """
+    Tramos (inicio, fin, tipo, valor) a tapar dentro de una línea de OCR. Pasa por el mismo guard gramatical
+    que el texto normal y, para nombres, lugares y organizaciones, exige mayúscula inicial: el OCR entrega
+    frases sueltas y spaCy marca palabras comunes ("acacias") como UBICACION.
+    """
+    tramos = []
+    for termino in terminos_corp:
+        for m in re.finditer(re.escape(termino), texto, re.IGNORECASE):
+            tramos.append((m.start(), m.end(), "CONFIDENCIAL", m.group(0)))
+    entidades = _analizar_o_fallar(
+        text=all_caps_to_title_case(texto), language="es",
+        entities=["PERSON", "LOCATION", "ORGANIZATION", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD"]
+    )
+    for pii in sorted(entidades, key=lambda x: (x.end - x.start, x.score), reverse=True):
+        valido, valor, ini, fin, tipo = validar_y_limpiar_entidad(texto, pii.start, pii.end, pii.entity_type)
+        if not valido:
+            continue
+        if tipo in ("PERSON", "LOCATION", "ORGANIZATION") and not valor[:1].isupper():
+            continue
+        if any(max(ini, t[0]) < min(fin, t[1]) for t in tramos):
+            continue
+        tramos.append((ini, fin, MAPA_ETIQUETAS.get(tipo, "DATO_PERSONAL"), valor))
+    return sorted(tramos)
+
+
+def procesar_imagen_ocr(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=None, guardar_llave=True, prefijo=""):
+    """
+    Tapa en la imagen solo las palabras sensibles (no la línea entera) y escribe encima la misma etiqueta
+    numerada que guarda la llave. 'prefijo' (p. ej. "PAG2_") distingue las páginas de un PDF escaneado.
+    """
     if not cv2 or not lector_ocr:
         raise MotorNoDisponibleError("El OCR (EasyOCR/OpenCV) no está disponible: no se pueden procesar imágenes.")
     exigir_motor()
-        
+
     resultados_ocr = lector_ocr.readtext(ruta_origen)
     imagen_cv = cv2.imread(ruta_origen)
     mapas_acumulados = {}
+    valor_a_etiqueta = {}
+    contadores = {}
     target_salida = carpeta_salida or CARPETA_SALIDA_DEFECTO
     terminos_corp = cargar_diccionario_corporativo()
 
     for (coordenadas, texto_detectado, probabilidad) in resultados_ocr:
-        if len(texto_detectado.strip()) > 1:
-            analisis = _analizar_o_fallar(
-                text=texto_detectado, language="es",
-                entities=["PERSON", "LOCATION", "ORGANIZATION", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD"]
-            )
-            
-            dict_match = [t for t in terminos_corp if t.lower() in texto_detectado.lower()]
-            
-            if analisis or dict_match:
-                x_min = int(min([p[0] for p in coordenadas]))
-                y_min = int(min([p[1] for p in coordenadas]))
-                x_max = int(max([p[0] for p in coordenadas]))
-                y_max = int(max([p[1] for p in coordenadas]))
-                
-                label = "[CONFIDENCIAL]" if dict_match else MAPA_ETIQUETAS.get(analisis[0].entity_type, "[PII]")
-                
-                cv2.rectangle(imagen_cv, (x_min, y_min), (x_max, y_max), (30, 24, 18), -1)
-                cv2.rectangle(imagen_cv, (x_min, y_min), (x_max, y_max), (248, 189, 56), 1)
-                
-                h_box = max(1, y_max - y_min)
-                scale = max(0.3, min(0.5, h_box / 35.0))
-                cv2.putText(imagen_cv, label, (x_min + 3, y_min + int(h_box * 0.7)), cv2.FONT_HERSHEY_SIMPLEX, scale, (255, 255, 255), 1, cv2.LINE_AA)
-                mapas_acumulados[f"[IMAGE_PII_{len(mapas_acumulados)+1}]"] = texto_detectado
+        if len(texto_detectado.strip()) <= 1:
+            continue
+        x_min = int(min(p[0] for p in coordenadas))
+        y_min = int(min(p[1] for p in coordenadas))
+        x_max = int(max(p[0] for p in coordenadas))
+        y_max = int(max(p[1] for p in coordenadas))
+        # El OCR no da la posición de cada letra: se reparte el ancho de la línea en proporción a los caracteres,
+        # con carácter y medio de margen a cada lado: es mejor rozar la palabra vecina que dejar ver una letra.
+        ancho_car = (x_max - x_min) / max(1, len(texto_detectado))
+        h_box = max(1, y_max - y_min)
+
+        for ini, fin, tipo, valor in _tramos_sensibles_ocr(texto_detectado, terminos_corp):
+            if valor not in valor_a_etiqueta:
+                n = contadores.get(tipo, 0) + 1
+                contadores[tipo] = n
+                valor_a_etiqueta[valor] = f"[{prefijo}{tipo}_{n}]"
+                mapas_acumulados[valor_a_etiqueta[valor]] = valor
+            etiqueta = valor_a_etiqueta[valor]
+
+            x1 = max(x_min, int(x_min + (ini - 1.5) * ancho_car))
+            x2 = min(x_max, int(x_min + (fin + 1.5) * ancho_car))
+            cv2.rectangle(imagen_cv, (x1, y_min), (x2, y_max), (30, 24, 18), -1)
+            cv2.rectangle(imagen_cv, (x1, y_min), (x2, y_max), (248, 189, 56), 1)
+
+            # La etiqueta se achica para caber en el recuadro y no tapar las palabras vecinas.
+            escala = max(0.3, min(0.5, h_box / 35.0))
+            (ancho_txt, _), _ = cv2.getTextSize(etiqueta, cv2.FONT_HERSHEY_SIMPLEX, escala, 1)
+            if ancho_txt > (x2 - x1 - 4):
+                escala = max(0.2, escala * (x2 - x1 - 4) / max(1, ancho_txt))
+            cv2.putText(imagen_cv, etiqueta, (x1 + 2, y_min + int(h_box * 0.7)), cv2.FONT_HERSHEY_SIMPLEX, escala, (255, 255, 255), 1, cv2.LINE_AA)
 
     cv2.imwrite(ruta_destino, imagen_cv)
     if mapas_acumulados and guardar_llave:
