@@ -93,6 +93,9 @@ def _mover_contenido_carpeta(origen, destino):
     """Mueve de forma segura el contenido de origen a destino."""
     if not os.path.exists(origen) or os.path.abspath(origen) == os.path.abspath(destino):
         return
+    # En discos que no distinguen mayúsculas (macOS, Windows) 'entrada' y 'Entrada' son la misma carpeta.
+    if os.path.exists(destino) and os.path.samefile(origen, destino):
+        return
     os.makedirs(destino, exist_ok=True)
     try:
         for item in os.listdir(origen):

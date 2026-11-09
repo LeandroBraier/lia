@@ -25,6 +25,9 @@ if sys.stderr and hasattr(sys.stderr, "reconfigure"):
     except Exception:
         pass
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+# Avisos inofensivos de torch/EasyOCR que se repiten por cada página escaneada.
+warnings.filterwarnings("ignore", message=".*pin_memory.*")
+warnings.filterwarnings("ignore", message=".*quantize_per_tensor.*")
 
 # Parchear resolución de iconos y alineaciones de forma 100% segura
 class SafeIconsProxy:
