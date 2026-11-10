@@ -1902,9 +1902,12 @@ def _lanzar_navegador_seguro(url="http://localhost:8502"):
 
 if __name__ == "__main__":
     liberar_puerto(8502)
+    # Solo este equipo: escuchar en 0.0.0.0 exponía la app (y los documentos) a toda la red local.
+    # En Docker hace falta 0.0.0.0 dentro del contenedor; docker-compose solo publica el puerto en 127.0.0.1.
+    host = os.environ.get("LIA_VAULT_HOST") or ("0.0.0.0" if ES_DOCKER else "127.0.0.1")
     print("\n==================================================")
     print(" [OK] SERVIDOR LIA VAULT EN EJECUCION")
     print(" [+] URL Local: http://localhost:8502")
-    print(" [+] URL Red:   http://127.0.0.1:8502")
+    print(f" [+] Escuchando en: {host}:8502")
     print("==================================================\n")
-    ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=8502, host="0.0.0.0")
+    ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=8502, host=host)
