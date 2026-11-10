@@ -101,6 +101,18 @@ LOGO_BASE64 = base64.b64encode(LOGO_SVG_RAW.encode("utf-8")).decode("utf-8")
 
 ES_DOCKER = os.path.exists("/.dockerenv") or os.getenv("DOCKER_CONTAINER") == "true"
 
+def ruta_en_equipo(ruta):
+    """
+    En Docker, traduce una ruta del contenedor (/datos/...) a la carpeta real del equipo, que docker-compose
+    pasa en LIA_RUTA_EQUIPO. Fuera de Docker devuelve la ruta tal cual.
+    """
+    base, equipo = os.environ.get("LIA_VAULT_BASE"), os.environ.get("LIA_RUTA_EQUIPO")
+    if not (ES_DOCKER and base and equipo):
+        return ruta
+    rel = os.path.relpath(os.path.abspath(ruta), os.path.abspath(base))
+    return ruta if rel.startswith("..") else os.path.normpath(os.path.join(equipo, rel))
+
+
 def abrir_local(ruta):
     """Abre un archivo o carpeta en el explorador del sistema operativo local."""
     if ES_DOCKER:
@@ -253,7 +265,7 @@ async def main(page: ft.Page):
                     with open(ruta_doc, "r", encoding="utf-8", errors="ignore") as f:
                         contenido = f.read(3000)
                 else:
-                    contenido = f"📄 Archivo resguardado: {nombre_doc}\n\nLos archivos binarios (.pdf, .docx, .xlsx, .png) están procesados y disponibles en la carpeta /salida de tu sistema."
+                    contenido = f"📄 Archivo resguardado: {nombre_doc}\n\nLos archivos .pdf, .docx, .xlsx y .png no se muestran aquí. Están en tu equipo en:\n{ruta_en_equipo(ruta_doc)}"
             else:
                 contenido = "Archivo no encontrado."
         except Exception as ex:
@@ -270,7 +282,7 @@ async def main(page: ft.Page):
             content=ft.Container(
                 content=ft.Column([
                     ft.TextField(value=contenido, multiline=True, min_lines=8, max_lines=14, read_only=True, text_size=11, color="#E2E8F0")
-                ], spacing=6),
+                ], spacing=6, tight=True),
                 width=520, padding=4
             ),
             actions=[
@@ -278,6 +290,27 @@ async def main(page: ft.Page):
             ]
         )
         # Flet 0.86 ignora page.dialog: los diálogos se abren con show_dialog.
+        page.show_dialog(dlg)
+
+    def abrir_carpeta(ruta):
+        """Fuera de Docker abre el explorador; en Docker (sin acceso al escritorio) muestra dónde está la carpeta."""
+        if not ES_DOCKER:
+            abrir_local(ruta)
+            return
+        dlg = ft.AlertDialog(
+            title=ft.Row([
+                ft.Icon(ft.icons.FOLDER_OPEN, color=NEON_BLUE, size=20),
+                ft.Text(t("docker_folder_title"), size=13, weight=ft.FontWeight.BOLD, color="#FFFFFF")
+            ]),
+            content=ft.Container(
+                content=ft.Column([
+                    ft.Text(t("docker_folder_desc"), size=11, color=TEXT_MUTED),
+                    ft.Text(ruta_en_equipo(ruta), selectable=True, size=12, color="#E2E8F0", weight=ft.FontWeight.W_500),
+                ], spacing=8, tight=True),
+                width=520, padding=4
+            ),
+            actions=[ft.TextButton("OK", on_click=lambda e: page.pop_dialog())]
+        )
         page.show_dialog(dlg)
 
     def abrir_documento_o_dialogo(nombre_doc, ruta_doc):
@@ -300,11 +333,13 @@ async def main(page: ft.Page):
                     ft.Text(f"Documento: {nombre_doc}", size=11, weight=ft.FontWeight.BOLD, color=NEON_BLUE),
                     ft.Text(
                         "Esta llave contiene la tabla de tokens y datos originales que usa la Traducción Inversa. "
-                        "Está cifrada con la clave maestra guardada en el llavero de este equipo: copiada a otro equipo no se puede abrir.\n\n"
-                        f"Ubicación: {ruta_k}",
+                        + ("Está cifrada con la frase maestra (LIA_VAULT_FRASE_MAESTRA del archivo .env): sin esa frase no se puede abrir.\n\n"
+                           if ES_DOCKER else
+                           "Está cifrada con la clave maestra guardada en el llavero de este equipo: copiada a otro equipo no se puede abrir.\n\n")
+                        + f"Ubicación: {ruta_en_equipo(ruta_k)}",
                         size=11, color="#E2E8F0"
                     )
-                ], spacing=8),
+                ], spacing=8, tight=True),
                 width=380, padding=6
             ),
             actions=[
@@ -1298,16 +1333,15 @@ async def main(page: ft.Page):
                         ft.Icon(ft.icons.FOLDER_SPECIAL, color=EMERALD_GREEN, size=20),
                         ft.Column([
                             ft.Text(t("sanitizer_output_title"), size=15, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                            ft.Text(t("sanitizer_output_path_hint"), size=11, color=NEON_BLUE, weight=ft.FontWeight.W_500)
+                            ft.Text(t("sanitizer_output_path_hint", path=ruta_en_equipo(carpeta_salida_configurada)), size=11, color=NEON_BLUE, weight=ft.FontWeight.W_500)
                         ], spacing=2)
                     ], spacing=8),
                     ft.IconButton(
                         ft.icons.FOLDER_OPEN, 
                         icon_size=18, 
-                        disabled=ES_DOCKER,
-                        icon_color=TEXT_MUTED if ES_DOCKER else "#FFFFFF",
+                        icon_color="#FFFFFF",
                         tooltip=t("sanitizer_tooltip_folder_docker") if ES_DOCKER else t("sanitizer_tooltip_folder"), 
-                        on_click=lambda _: abrir_local(carpeta_salida_configurada)
+                        on_click=lambda _: abrir_carpeta(carpeta_salida_configurada)
                     )
                 ], alignment=ft.MainAxisAlignment.BETWEEN),
                 ft.Divider(height=10, color="#334155"),
@@ -1427,16 +1461,15 @@ async def main(page: ft.Page):
                         ft.Icon(ft.icons.FOLDER_SPECIAL, color=EMERALD_GREEN, size=20),
                         ft.Column([
                             ft.Text(t("anon_output_title"), size=13, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                            ft.Text(t("anon_output_path", path=app_offline.CARPETA_SALIDA_ANONIMIZADA), size=10, color=TEXT_MUTED)
+                            ft.Text(t("anon_output_path", path=ruta_en_equipo(app_offline.CARPETA_SALIDA_ANONIMIZADA)), size=10, color=TEXT_MUTED)
                         ], spacing=2)
                     ], spacing=8),
                     ft.IconButton(
                         ft.icons.FOLDER_OPEN, 
                         icon_size=18, 
-                        disabled=ES_DOCKER,
-                        icon_color=TEXT_MUTED if ES_DOCKER else "#FFFFFF",
+                        icon_color="#FFFFFF",
                         tooltip=t("anon_tooltip_folder"), 
-                        on_click=lambda _: abrir_local(app_offline.CARPETA_SALIDA_ANONIMIZADA)
+                        on_click=lambda _: abrir_carpeta(app_offline.CARPETA_SALIDA_ANONIMIZADA)
                     )
                 ], alignment=ft.MainAxisAlignment.BETWEEN),
                 ft.Divider(height=10, color="#334155"),
@@ -1603,16 +1636,15 @@ async def main(page: ft.Page):
                     ft.Icon(ft.icons.SWAP_HORIZ, color=ACCENT_ORANGE, size=22),
                     ft.Column([
                         ft.Text(t("reversion_card_title"), size=17, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                        ft.Text(f"Carpeta: {app_offline.CARPETA_RESTAURADOS}", size=11, color=TEXT_MUTED)
+                        ft.Text(f"Carpeta: {ruta_en_equipo(app_offline.CARPETA_RESTAURADOS)}", size=11, color=TEXT_MUTED)
                     ], spacing=2)
                 ], spacing=8),
                 ft.IconButton(
                     ft.icons.FOLDER_OPEN,
                     icon_size=20,
-                    disabled=ES_DOCKER,
-                    icon_color=TEXT_MUTED if ES_DOCKER else "#FFFFFF",
+                    icon_color="#FFFFFF",
                     tooltip=t("reversion_tooltip_folder"),
-                    on_click=lambda _: abrir_local(app_offline.CARPETA_RESTAURADOS)
+                    on_click=lambda _: abrir_carpeta(app_offline.CARPETA_RESTAURADOS)
                 )
             ], alignment=ft.MainAxisAlignment.BETWEEN),
             padding=ft.Padding(bottom=4)

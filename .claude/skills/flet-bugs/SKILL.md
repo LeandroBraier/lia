@@ -31,12 +31,15 @@ consola del navegador, o una API vieja se ignora sin avisar.
 | "Seleccionar archivos" no responde; servidor: `Timeout waiting for invoke method listener for FilePicker(N).pick_files`; navegador: `RangeError`/`IndexError` | El `FilePicker` se registraba dos veces: `ft.FilePicker()` ya se registra solo (`Service.init`) y además se llamaba `page._services.register_service` | Crear el servicio una sola vez, sin registro manual ni re-registro al reconstruir la interfaz (bf96894). Vale para todos los servicios (`Clipboard`, `UrlLauncher`, `SharedPreferences`…) |
 | `module 'flet' has no attribute 'app'` en Docker | Otra versión de Flet instalada | Fijar `flet==0.86.1` y `flet-web==0.86.1` |
 | `TypeError` con `openapi_prefix` al arrancar el servidor web | `fastapi`/`starlette`/`uvicorn` incompatibles | Fijar `fastapi==0.139.2`, `starlette==1.3.1`, `uvicorn==0.51.0` |
+| Un `AlertDialog` ocupa toda la altura de la pantalla con poco texto | La `Column` del contenido se expande | `ft.Column([...], tight=True)` |
+| Una ruta en un diálogo queda cortada en una línea | `TextField` de una línea con ancho fijo | `ft.Text(ruta, selectable=True)`, que salta de línea |
 | Un icono aparece distinto del pedido | `SafeIconsProxy` en `app_grafica.py` reemplaza en silencio los nombres que no existen | Buscar el nombre real en `ft.Icons`; no confiar en que el proxy avise |
 
 ## Trampas relacionadas (Python, pero aparecen en la interfaz)
 
 - **Rutas viejas tras cambiar de idioma** (`No such file or directory: '/datos/Input'`): `from app_offline import CARPETA_ENTRADA` copia el valor al importar. Leer siempre `app_offline.CARPETA_...` (bffad43).
 - **Idioma inglés en Docker**: `LANG=C.UTF-8` se interpreta como `en_US`; `i18n.detect_system_language` lo trata como "sin idioma" → español.
+- **En Docker la app no puede abrir el Finder ni archivos del equipo** (está aislada). Los botones "Abrir" muestran un diálogo con la ruta del equipo: `ruta_en_equipo()` traduce `/datos/...` usando `LIA_RUTA_EQUIPO`, que pasa `docker-compose.yml`. Los archivos de Docker están en `Lia-Vault/datos/`, no en `~/LiaVault` (esa es la app de escritorio).
 - **El Mac y Docker difieren**: distinto Python (3.14 vs 3.11), sistema de archivos sin mayúsculas en macOS (`entrada` = `Entrada`), usuario sin privilegios y disco de solo lectura en Docker. Ante un fallo en un solo entorno, empezar por estas diferencias.
 
 ## Sin resolver
