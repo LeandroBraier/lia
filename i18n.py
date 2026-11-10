@@ -75,7 +75,7 @@ TRANSLATIONS = {
         "sanitizer_output_title": "Archivos seguros ya procesados",
         "sanitizer_output_path_hint": "📍 Ubicación en tu equipo: {path}",
         "docker_folder_title": "Carpeta en tu equipo",
-        "docker_folder_desc": "Lia Vault corre en Docker y no puede abrir el explorador de tu equipo. Abrí esta carpeta desde Finder o el Explorador de archivos:",
+        "docker_folder_desc": "Lia Vault corre en Docker y no puede abrir el explorador de tu equipo. Abre esta carpeta desde Finder o el Explorador de archivos:",
         "sanitizer_tooltip_folder": "Abrir carpeta de salida en explorador",
         "sanitizer_tooltip_folder_docker": "Ver dónde está la carpeta en tu equipo",
         "sanitizer_no_processed": "No hay archivos procesados en la carpeta de salida aún.",
