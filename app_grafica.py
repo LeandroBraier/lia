@@ -716,9 +716,10 @@ async def main(page: ft.Page):
         if opciones and not dd_archivo_origen_key.value:
             dd_archivo_origen_key.value = opciones[0]
 
-    # --- FILE PICKER (registrado via ServiceRegistry interno de Flet 0.86) ---
+    # --- FILE PICKER ---
+    # Flet 0.86 registra el servicio solo al crearlo. Registrarlo otra vez lo duplica en la página y el cliente
+    # web falla con "RangeError" al recibirlo; según el navegador, el selector deja de responder.
     global_file_picker = ft.FilePicker()
-    page._services.register_service(global_file_picker)
     # Flet descarta tras cada evento los servicios con pocas referencias (sys.getrefcount). En Python < 3.14
     # (el de Docker) un selector que solo vive en los closures de los botones no llega al umbral y se pierde:
     # el navegador deja de responder ("Timeout waiting for invoke method listener"). Se guarda mientras viva la página.
@@ -929,11 +930,6 @@ async def main(page: ft.Page):
         except (LlaveError, OSError) as ex_mig:
             print(f"⚠️ No se pudieron cifrar las llaves antiguas: {type(ex_mig).__name__}")
 
-        # Re-registrar servicio FilePicker en caso de reconstrucción del árbol
-        try:
-            page._services.register_service(global_file_picker)
-        except Exception:
-            pass
 
         lang_curr = get_current_language()
         logo_img = ft.Image(src=f"data:image/svg+xml;base64,{LOGO_BASE64}", width=44, height=44, fit="contain")
