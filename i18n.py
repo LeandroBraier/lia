@@ -320,6 +320,10 @@ TRANSLATIONS = {
 
 def detect_system_language() -> str:
     """Detecta el idioma del sistema operativo (en o es)."""
+    # El locale "C"/"POSIX" (p. ej. LANG=C.UTF-8 en contenedores) no indica idioma, pero Python lo traduce a en_US.
+    env_lang = os.getenv("LC_ALL") or os.getenv("LANG") or ""
+    if env_lang.split(".")[0].upper() in ("C", "POSIX"):
+        return "es"
     try:
         lang, _ = locale.getdefaultlocale()
         if lang and lang.lower().startswith("en"):

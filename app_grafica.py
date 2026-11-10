@@ -71,16 +71,12 @@ from app_offline import (
     ejecutar_reversion_archivo,
     actualizar_rutas_idioma,
     IdiomaNoSoportadoError,
-    CARPETA_ENTRADA, 
-    CARPETA_SALIDA_DEFECTO,
-    CARPETA_SALIDA_ANONIMIZADA,
-    CARPETA_RESTAURADOS,
-    CARPETA_PROCESADOS,
     cargar_diccionario_corporativo,
-    RUTA_DICCIONARIO,
     buscar_llave,
     documentos_con_llave,
 )
+# Las rutas de carpetas se leen siempre como app_offline.X: cambian al cambiar de idioma
+# y un 'from app_offline import CARPETA_...' se quedaría con la ruta vieja.
 import app_offline
 import auditoria
 from llaves import LlaveError, leer_llave, leer_llave_archivo
@@ -151,8 +147,8 @@ async def main(page: ft.Page):
 
     # --- VARIABLES DE ESTADO DEL WORKSPACE ---
     lista_archivos_entrada = []
-    carpeta_salida_configurada = os.path.abspath(CARPETA_SALIDA_DEFECTO)
-    carpeta_salida_anonimizada_configurada = os.path.abspath(CARPETA_SALIDA_ANONIMIZADA)
+    carpeta_salida_configurada = os.path.abspath(app_offline.CARPETA_SALIDA_DEFECTO)
+    carpeta_salida_anonimizada_configurada = os.path.abspath(app_offline.CARPETA_SALIDA_ANONIMIZADA)
     menu_activo = "sanitizador"
     archivo_seleccionado_preview = None
     archivo_seleccionado_preview_anon = None
@@ -236,7 +232,7 @@ async def main(page: ft.Page):
             for f_item in e.files:
                 f_path = getattr(f_item, "path", str(f_item))
                 if f_path and os.path.exists(f_path):
-                    dest = os.path.join(CARPETA_ENTRADA, os.path.basename(f_path))
+                    dest = os.path.join(app_offline.CARPETA_ENTRADA, os.path.basename(f_path))
                     shutil.copy(f_path, dest)
                     count += 1
             refrescar_vistas_archivos()
@@ -356,7 +352,7 @@ async def main(page: ft.Page):
     def seleccionar_para_preview(nombre_archivo):
         nonlocal archivo_seleccionado_preview
         archivo_seleccionado_preview = nombre_archivo
-        ruta_f = os.path.join(CARPETA_ENTRADA, nombre_archivo)
+        ruta_f = os.path.join(app_offline.CARPETA_ENTRADA, nombre_archivo)
         _, ext_f = os.path.splitext(nombre_archivo.lower())
         es_comp = ext_f in EXT_PERMITIDAS
         
@@ -389,7 +385,7 @@ async def main(page: ft.Page):
 
     def borrar_archivo_entrada(fname):
         try:
-            ruta = os.path.join(CARPETA_ENTRADA, fname)
+            ruta = os.path.join(app_offline.CARPETA_ENTRADA, fname)
             if os.path.exists(ruta):
                 os.remove(ruta)
         except Exception as ex:
@@ -402,8 +398,8 @@ async def main(page: ft.Page):
         nonlocal lista_archivos_entrada
         # 1. Cola de entrada
         try:
-            todos = os.listdir(CARPETA_ENTRADA)
-            lista_archivos_entrada = [f for f in todos if not f.startswith(".") and not f.startswith("~$") and os.path.isfile(os.path.join(CARPETA_ENTRADA, f))]
+            todos = os.listdir(app_offline.CARPETA_ENTRADA)
+            lista_archivos_entrada = [f for f in todos if not f.startswith(".") and not f.startswith("~$") and os.path.isfile(os.path.join(app_offline.CARPETA_ENTRADA, f))]
             texto_estado_sanitizador.value = t("sanitizer_queue_status", count=len(lista_archivos_entrada))
             texto_estado_sanitizador.color = NEON_BLUE
             btn_procesar_lote.disabled = len(lista_archivos_entrada) == 0
@@ -421,7 +417,7 @@ async def main(page: ft.Page):
             )
         else:
             for f in lista_archivos_entrada:
-                ruta_f = os.path.join(CARPETA_ENTRADA, f)
+                ruta_f = os.path.join(app_offline.CARPETA_ENTRADA, f)
                 _, ext_f = os.path.splitext(f.lower())
                 es_compatible = ext_f in EXT_PERMITIDAS
 
@@ -538,7 +534,7 @@ async def main(page: ft.Page):
     def seleccionar_para_preview_anon(nombre_archivo):
         nonlocal archivo_seleccionado_preview_anon
         archivo_seleccionado_preview_anon = nombre_archivo
-        ruta_f = os.path.join(CARPETA_ENTRADA, nombre_archivo)
+        ruta_f = os.path.join(app_offline.CARPETA_ENTRADA, nombre_archivo)
         _, ext_f = os.path.splitext(nombre_archivo.lower())
         es_comp = ext_f in EXT_PERMITIDAS
         
@@ -572,8 +568,8 @@ async def main(page: ft.Page):
     def refrescar_vistas_archivos_anon():
         # 1. Cola de entrada para anonimizar
         try:
-            todos = os.listdir(CARPETA_ENTRADA)
-            archivos_entrada = [f for f in todos if not f.startswith(".") and not f.startswith("~$") and os.path.isfile(os.path.join(CARPETA_ENTRADA, f))]
+            todos = os.listdir(app_offline.CARPETA_ENTRADA)
+            archivos_entrada = [f for f in todos if not f.startswith(".") and not f.startswith("~$") and os.path.isfile(os.path.join(app_offline.CARPETA_ENTRADA, f))]
             texto_estado_anon.value = t("anon_queue_status", count=len(archivos_entrada))
             texto_estado_anon.color = EMERALD_GREEN
             btn_procesar_lote_anon.disabled = len(archivos_entrada) == 0
@@ -592,7 +588,7 @@ async def main(page: ft.Page):
             )
         else:
             for f in archivos_entrada:
-                ruta_f = os.path.join(CARPETA_ENTRADA, f)
+                ruta_f = os.path.join(app_offline.CARPETA_ENTRADA, f)
                 _, ext_f = os.path.splitext(f.lower())
                 es_compatible = ext_f in EXT_PERMITIDAS
 
@@ -710,8 +706,8 @@ async def main(page: ft.Page):
         dd_archivo_origen_key.options.clear()
         opciones = []
         opciones.extend(documentos_con_llave(carpeta_salida_configurada))
-        if os.path.exists(CARPETA_PROCESADOS):
-            for f in os.listdir(CARPETA_PROCESADOS):
+        if os.path.exists(app_offline.CARPETA_PROCESADOS):
+            for f in os.listdir(app_offline.CARPETA_PROCESADOS):
                 if not f.startswith(".") and f not in opciones:
                     opciones.append(f)
 
@@ -729,7 +725,7 @@ async def main(page: ft.Page):
             files = await global_file_picker.pick_files(allow_multiple=True, with_data=True, cancel_upload_on_window_blur=False)
             if files:
                 for f in files:
-                    dest = os.path.join(CARPETA_ENTRADA, f.name)
+                    dest = os.path.join(app_offline.CARPETA_ENTRADA, f.name)
                     if hasattr(f, "bytes") and f.bytes:
                         with open(dest, "wb") as out_f:
                             out_f.write(f.bytes)
@@ -753,7 +749,7 @@ async def main(page: ft.Page):
                         with open(f.path, "r", encoding="utf-8", errors="ignore") as f_in:
                             contenido = f_in.readlines()
                     if contenido:
-                        with open(RUTA_DICCIONARIO, "a", encoding="utf-8") as f_out:
+                        with open(app_offline.RUTA_DICCIONARIO, "a", encoding="utf-8") as f_out:
                             f_out.write("\n")
                             for l in contenido:
                                 if l.strip():
@@ -795,7 +791,7 @@ async def main(page: ft.Page):
                 f = files[0]
                 nonlocal archivo_anonimizado_traduccion_path, nombre_archivo_traduccion_original
                 nombre_archivo_traduccion_original = f.name
-                dest_path = os.path.join(CARPETA_ENTRADA, f.name)
+                dest_path = os.path.join(app_offline.CARPETA_ENTRADA, f.name)
                 
                 if hasattr(f, "bytes") and f.bytes:
                     with open(dest_path, "wb") as out_f:
@@ -919,8 +915,8 @@ async def main(page: ft.Page):
     # --- INTERFAZ PRINCIPAL SUITE LIA VAULT ---
     def cargar_interfaz_principal():
         nonlocal carpeta_salida_configurada, carpeta_salida_anonimizada_configurada
-        carpeta_salida_configurada = os.path.abspath(CARPETA_SALIDA_DEFECTO)
-        carpeta_salida_anonimizada_configurada = os.path.abspath(CARPETA_SALIDA_ANONIMIZADA)
+        carpeta_salida_configurada = os.path.abspath(app_offline.CARPETA_SALIDA_DEFECTO)
+        carpeta_salida_anonimizada_configurada = os.path.abspath(app_offline.CARPETA_SALIDA_ANONIMIZADA)
 
         try:
             migradas, omitidas = app_offline.migrar_llaves_antiguas(carpeta_salida_configurada)
@@ -1356,8 +1352,8 @@ async def main(page: ft.Page):
 
         def limpiar_todo_cola():
             try:
-                for f in os.listdir(CARPETA_ENTRADA):
-                    r = os.path.join(CARPETA_ENTRADA, f)
+                for f in os.listdir(app_offline.CARPETA_ENTRADA):
+                    r = os.path.join(app_offline.CARPETA_ENTRADA, f)
                     if os.path.isfile(r):
                         os.remove(r)
             except Exception as ex:
@@ -1435,7 +1431,7 @@ async def main(page: ft.Page):
                         ft.Icon(ft.icons.FOLDER_SPECIAL, color=EMERALD_GREEN, size=20),
                         ft.Column([
                             ft.Text(t("anon_output_title"), size=13, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                            ft.Text(t("anon_output_path", path=CARPETA_SALIDA_ANONIMIZADA), size=10, color=TEXT_MUTED)
+                            ft.Text(t("anon_output_path", path=app_offline.CARPETA_SALIDA_ANONIMIZADA), size=10, color=TEXT_MUTED)
                         ], spacing=2)
                     ], spacing=8),
                     ft.IconButton(
@@ -1444,7 +1440,7 @@ async def main(page: ft.Page):
                         disabled=ES_DOCKER,
                         icon_color=TEXT_MUTED if ES_DOCKER else "#FFFFFF",
                         tooltip=t("anon_tooltip_folder"), 
-                        on_click=lambda _: abrir_local(CARPETA_SALIDA_ANONIMIZADA)
+                        on_click=lambda _: abrir_local(app_offline.CARPETA_SALIDA_ANONIMIZADA)
                     )
                 ], alignment=ft.MainAxisAlignment.BETWEEN),
                 ft.Divider(height=10, color="#334155"),
@@ -1569,7 +1565,7 @@ async def main(page: ft.Page):
 
             if archivo_anonimizado_traduccion_path and os.path.exists(archivo_anonimizado_traduccion_path):
                 nombre_b, ext = os.path.splitext(os.path.basename(archivo_anonimizado_traduccion_path))
-                target = os.path.join(CARPETA_RESTAURADOS, f"{nombre_b}_restaurado{ext}")
+                target = os.path.join(app_offline.CARPETA_RESTAURADOS, f"{nombre_b}_restaurado{ext}")
                 if os.path.exists(target):
                     abrir_documento_o_dialogo(os.path.basename(target), target)
                     return
@@ -1584,7 +1580,7 @@ async def main(page: ft.Page):
                 elif dd_archivo_origen_key.value:
                     nombre_base_out = f"{os.path.splitext(dd_archivo_origen_key.value)[0]}_restaurado"
 
-                dest = os.path.join(CARPETA_RESTAURADOS, f"{nombre_base_out}{ext_final}")
+                dest = os.path.join(app_offline.CARPETA_RESTAURADOS, f"{nombre_base_out}{ext_final}")
                 with open(dest, "w", encoding="utf-8") as f_out:
                     f_out.write(tf_texto_restaurado.value)
                 abrir_documento_o_dialogo(os.path.basename(dest), dest)
@@ -1611,7 +1607,7 @@ async def main(page: ft.Page):
                     ft.Icon(ft.icons.SWAP_HORIZ, color=ACCENT_ORANGE, size=22),
                     ft.Column([
                         ft.Text(t("reversion_card_title"), size=17, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                        ft.Text(f"Carpeta: {CARPETA_RESTAURADOS}", size=11, color=TEXT_MUTED)
+                        ft.Text(f"Carpeta: {app_offline.CARPETA_RESTAURADOS}", size=11, color=TEXT_MUTED)
                     ], spacing=2)
                 ], spacing=8),
                 ft.IconButton(
@@ -1620,7 +1616,7 @@ async def main(page: ft.Page):
                     disabled=ES_DOCKER,
                     icon_color=TEXT_MUTED if ES_DOCKER else "#FFFFFF",
                     tooltip=t("reversion_tooltip_folder"),
-                    on_click=lambda _: abrir_local(CARPETA_RESTAURADOS)
+                    on_click=lambda _: abrir_local(app_offline.CARPETA_RESTAURADOS)
                 )
             ], alignment=ft.MainAxisAlignment.BETWEEN),
             padding=ft.Padding(bottom=4)
@@ -1679,7 +1675,7 @@ async def main(page: ft.Page):
         def eliminar_termino_dic(termino_eliminar):
             terminos = cargar_diccionario_corporativo()
             nuevos = [t for t in terminos if t.lower() != termino_eliminar.lower()]
-            with open(RUTA_DICCIONARIO, "w", encoding="utf-8") as f:
+            with open(app_offline.RUTA_DICCIONARIO, "w", encoding="utf-8") as f:
                 f.write("# Lista de palabras prohibidas corporativas\n")
                 for t in nuevos:
                     f.write(t + "\n")
@@ -1688,7 +1684,7 @@ async def main(page: ft.Page):
         def agregar_termino_dic(e):
             val = tf_nueva_palabra_dic.value.strip() if tf_nueva_palabra_dic.value else ""
             if val:
-                with open(RUTA_DICCIONARIO, "a", encoding="utf-8") as f:
+                with open(app_offline.RUTA_DICCIONARIO, "a", encoding="utf-8") as f:
                     f.write("\n" + val + "\n")
                 tf_nueva_palabra_dic.value = ""
                 refrescar_diccionario_view()
