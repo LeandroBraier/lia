@@ -2089,25 +2089,27 @@ def ejecutar_anonimizacion_real_lotes(carpeta_salida=None, k_umbral=3, generaliz
         ruta_origen = os.path.join(CARPETA_ENTRADA, nombre_archivo)
         nombre_sanitizado = _nombre_salida_libre(target_salida, sanitizar_nombre_archivo_real(nombre_archivo))
         ruta_destino = os.path.join(target_salida, nombre_sanitizado)
+        # El certificado lleva el nombre anonimizado: el original puede tener datos personales y,
+        # además, la interfaz busca el certificado por el nombre de la salida.
         ext = nombre_archivo.lower()
         
         try:
             if ext.endswith(".txt"):
-                procesar_archivo_texto_real(ruta_origen, ruta_destino, nombre_archivo, target_salida, generalizar_cuasi=generalizar_cuasi)
+                procesar_archivo_texto_real(ruta_origen, ruta_destino, nombre_sanitizado, target_salida, generalizar_cuasi=generalizar_cuasi)
             elif ext.endswith(".md"):
-                procesar_markdown_real(ruta_origen, ruta_destino, nombre_archivo, target_salida, generalizar_cuasi=generalizar_cuasi)
+                procesar_markdown_real(ruta_origen, ruta_destino, nombre_sanitizado, target_salida, generalizar_cuasi=generalizar_cuasi)
             elif ext.endswith(".json"):
-                procesar_json_real(ruta_origen, ruta_destino, nombre_archivo, target_salida, generalizar_cuasi=generalizar_cuasi)
+                procesar_json_real(ruta_origen, ruta_destino, nombre_sanitizado, target_salida, generalizar_cuasi=generalizar_cuasi)
             elif ext.endswith(".csv"):
-                procesar_tabla_csv_real(ruta_origen, ruta_destino, nombre_archivo, target_salida, k_umbral=k_umbral, generalizar_cuasi=generalizar_cuasi)
+                procesar_tabla_csv_real(ruta_origen, ruta_destino, nombre_sanitizado, target_salida, k_umbral=k_umbral, generalizar_cuasi=generalizar_cuasi)
             elif ext.endswith(".docx"):
-                procesar_documento_word_real(ruta_origen, ruta_destino, nombre_archivo, target_salida, generalizar_cuasi=generalizar_cuasi)
+                procesar_documento_word_real(ruta_origen, ruta_destino, nombre_sanitizado, target_salida, generalizar_cuasi=generalizar_cuasi)
             elif ext.endswith(".xlsx"):
-                procesar_excel_real(ruta_origen, ruta_destino, nombre_archivo, target_salida, k_umbral=k_umbral, generalizar_cuasi=generalizar_cuasi)
+                procesar_excel_real(ruta_origen, ruta_destino, nombre_sanitizado, target_salida, k_umbral=k_umbral, generalizar_cuasi=generalizar_cuasi)
             elif ext.endswith(".pdf"):
-                procesar_pdf_real(ruta_origen, ruta_destino, nombre_archivo, target_salida, generalizar_cuasi=generalizar_cuasi)
+                procesar_pdf_real(ruta_origen, ruta_destino, nombre_sanitizado, target_salida, generalizar_cuasi=generalizar_cuasi)
             elif ext.endswith((".jpg", ".jpeg", ".png")):
-                procesar_imagen_ocr_real(ruta_origen, ruta_destino, nombre_archivo, target_salida)
+                procesar_imagen_ocr_real(ruta_origen, ruta_destino, nombre_sanitizado, target_salida)
             else:
                 print(f"⚠️ Formato no compatible: {nombre_archivo}")
                 continue
@@ -2121,13 +2123,13 @@ def ejecutar_anonimizacion_real_lotes(carpeta_salida=None, k_umbral=3, generaliz
             print(f"✅ Anonimizado (RGPD) y movido a /procesados: {nombre_archivo}")
 
         except IdiomaNoSoportadoError as e_lang:
-            _eliminar_salida_parcial(target_salida, ruta_destino, nombre_archivo)
+            _eliminar_salida_parcial(target_salida, ruta_destino, nombre_sanitizado)
             registro.registrar("anonimizacion", "rechazado", ruta_archivo=ruta_origen, error=e_lang)
             print(f"⚠️ Archivo rechazado por idioma no soportado {nombre_archivo}: {e_lang}")
             if archivo_especifico:
                 raise e_lang
         except Exception as e:
-            _eliminar_salida_parcial(target_salida, ruta_destino, nombre_archivo)
+            _eliminar_salida_parcial(target_salida, ruta_destino, nombre_sanitizado)
             registro.registrar("anonimizacion", "error", ruta_archivo=ruta_origen, error=e)
             print(f"❌ Error al anonimizar {nombre_archivo}: {type(e).__name__}")
             if archivo_especifico:
