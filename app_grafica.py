@@ -719,6 +719,10 @@ async def main(page: ft.Page):
     # --- FILE PICKER (registrado via ServiceRegistry interno de Flet 0.86) ---
     global_file_picker = ft.FilePicker()
     page._services.register_service(global_file_picker)
+    # Flet descarta tras cada evento los servicios con pocas referencias (sys.getrefcount). En Python < 3.14
+    # (el de Docker) un selector que solo vive en los closures de los botones no llega al umbral y se pierde:
+    # el navegador deja de responder ("Timeout waiting for invoke method listener"). Se guarda mientras viva la página.
+    page._lia_servicios = [global_file_picker]
 
     async def click_abrir_picker_documentos(e):
         try:
