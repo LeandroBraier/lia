@@ -22,6 +22,7 @@ import hashlib
 import json
 import os
 import secrets
+import sys
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -39,6 +40,20 @@ _cache_clave = {}
 
 class LlaveError(RuntimeError):
     pass
+
+
+def carpeta_base():
+    """
+    Carpeta de datos de Lia Vault. LIA_VAULT_BASE la fija (en Docker, el volumen /datos; el código queda de solo
+    lectura). El ejecutable compilado nunca guarda datos dentro de su paquete: se perderían (llaves incluidas)
+    al actualizar la app.
+    """
+    if os.environ.get("LIA_VAULT_BASE"):
+        return os.environ["LIA_VAULT_BASE"]
+    base = os.path.dirname(os.path.abspath(__file__))
+    if getattr(sys, "frozen", False) or not os.access(base, os.W_OK) or base.startswith("/Volumes/"):
+        return os.path.join(os.path.expanduser("~"), "LiaVault")
+    return base
 
 
 def _clave_desde_llavero():

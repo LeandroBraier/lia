@@ -180,9 +180,12 @@ if __name__ == "__main__":
     if len(sys.argv) < 2 or sys.argv[1] != "verificar":
         print("Uso: python3 auditoria.py verificar [ruta del registro]")
         sys.exit(2)
-    import app_offline
+    # Solo llaves.py: importar app_offline cargaría los modelos de IA sin necesidad.
+    import llaves
 
-    ruta_registro = sys.argv[2] if len(sys.argv) > 2 else app_offline.registro.ruta
-    ok, detalle = verificar(ruta_registro, derivar_clave(app_offline.llaves.obtener_clave_maestra(app_offline.CARPETA_LLAVES)))
+    base = llaves.carpeta_base()
+    ruta_registro = sys.argv[2] if len(sys.argv) > 2 else (
+        os.environ.get(VARIABLE_RUTA) or os.path.join(base, "Registros", NOMBRE_ARCHIVO))
+    ok, detalle = verificar(ruta_registro, derivar_clave(llaves.obtener_clave_maestra(os.path.join(base, "Llaves"))))
     print(("✅ " if ok else "❌ ") + detalle)
     sys.exit(0 if ok else 1)

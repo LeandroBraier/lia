@@ -64,11 +64,7 @@ except ImportError:
     Image = None
 
 # 1. Configuración de rutas corporativas y soporte multiidioma
-# LIA_VAULT_BASE fija la carpeta de datos (en Docker, el volumen /datos; el código queda de solo lectura).
-_base_dir = os.environ.get("LIA_VAULT_BASE") or os.path.dirname(os.path.abspath(__file__))
-# El ejecutable compilado nunca guarda datos dentro de su paquete: se perderían (llaves incluidas) al actualizar la app.
-if not os.environ.get("LIA_VAULT_BASE") and (getattr(sys, "frozen", False) or not os.access(_base_dir, os.W_OK) or _base_dir.startswith("/Volumes/")):
-    _base_dir = os.path.join(os.path.expanduser("~"), "LiaVault")
+_base_dir = llaves.carpeta_base()
 
 NOMBRES_CARPETAS = {
     "es": {
