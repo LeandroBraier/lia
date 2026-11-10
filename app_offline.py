@@ -1105,6 +1105,13 @@ def ejecutar_reversion_archivo(ruta_origen, mapa_reversion, ruta_destino=None):
         with open(ruta_destino, "w", encoding="utf-8") as f:
             json.dump(datos_restaurados, f, indent=4, ensure_ascii=False)
 
+    elif ext_lower == ".pdf":
+        _revertir_pdf(ruta_origen, ruta_destino, mapa_reversion)
+
+    elif ext_lower in (".png", ".jpg", ".jpeg"):
+        raise ValueError("Las imágenes no se pueden restaurar: los datos se borraron de los píxeles. "
+                         "La llave guarda los valores originales para consultarlos.")
+
     else:
         with open(ruta_origen, "r", encoding="utf-8", errors="ignore") as f:
             contenido = f.read()
@@ -1292,6 +1299,65 @@ def procesar_excel(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=Non
         guardar_llave_key(target_salida, nombre_archivo, key_map)
 
 
+# Color del recuadro que tapa un dato en un PDF seudonimizado: la reversión lo busca para saber qué zona restaurar.
+FONDO_ETIQUETA_PDF = (0.12, 0.16, 0.22)
+
+
+def _tamano_que_entra(texto, rect, maximo):
+    """Tamaño de letra para que 'texto' entre en una sola línea dentro de 'rect'."""
+    ancho_1pt = fitz.get_text_length(texto, fontname="helv", fontsize=1) or 1
+    return max(1.5, min(maximo, rect.height * 0.8, (rect.width - 1) / ancho_1pt))
+
+
+def _escribir_en_hueco(pagina, rect, texto, color, maximo):
+    """
+    Escribe 'texto' en una sola línea dentro de 'rect'. No se usa el texto de add_redact_annot: si no cabe,
+    PyMuPDF lo parte en dos líneas ("[PERSONA_" / "1]") y la etiqueta ya no se puede encontrar al restaurar.
+    """
+    tam = _tamano_que_entra(texto, rect, maximo)
+    base = fitz.Point(rect.x0 + 0.5, rect.y0 + (rect.height + tam * 0.7) / 2)
+    pagina.insert_text(base, texto, fontname="helv", fontsize=tam, color=color)
+
+
+def _revertir_pdf(ruta_origen, ruta_destino, mapa_reversion):
+    """
+    Devuelve los datos originales a un PDF seudonimizado: cada etiqueta se reemplaza por su valor dentro del
+    recuadro oscuro que la contenía (el hueco del dato original). Las páginas escaneadas no se pueden
+    restaurar: sus datos se borraron de la imagen.
+    """
+    if not fitz:
+        raise MotorNoDisponibleError("PyMuPDF no está instalado: no se pueden restaurar archivos PDF.")
+    doc = fitz.open(ruta_origen)
+    restaurados = 0
+    for pagina in doc:
+        recuadros = [d["rect"] for d in pagina.get_drawings()
+                     if d.get("fill") and all(abs(a - b) < 0.02 for a, b in zip(d["fill"], FONDO_ETIQUETA_PDF))]
+        zonas, textos = [], []
+        # Primero las etiquetas largas: así [PERSONA_1] no se busca dentro de [PERSONA_10].
+        for etiqueta, original in sorted(mapa_reversion.items(), key=lambda kv: len(kv[0]), reverse=True):
+            for r in pagina.search_for(etiqueta):
+                if any(z.contains(r) for z in zonas):
+                    continue
+                zona = next((c for c in recuadros if c.contains((r.tl + r.br) / 2)), r)
+                # Medio punto hacia adentro: no toca la puntuación pegada al dato (empieza justo en el borde)
+                # y, con REMOVE_IF_TOUCHED, igual borra el recuadro oscuro entero (sin dejar su contorno).
+                zona = zona + (0.5, 0.5, -0.5, -0.5)
+                zonas.append(zona)
+                textos.append((zona, original))
+                pagina.add_redact_annot(zona, fill=(1, 1, 1))
+                restaurados += 1
+        if zonas:
+            pagina.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE,
+                                    graphics=fitz.PDF_REDACT_LINE_ART_REMOVE_IF_TOUCHED)
+            for rect, original in textos:
+                _escribir_en_hueco(pagina, rect, original, (0, 0, 0), 11)
+    if not restaurados:
+        doc.close()
+        raise ValueError("No se encontró ninguna etiqueta para restaurar en el PDF (¿páginas escaneadas o llave de otro documento?).")
+    doc.save(ruta_destino, garbage=4, deflate=True)
+    doc.close()
+
+
 def procesar_pdf(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=None):
     if not fitz:
         raise MotorNoDisponibleError("PyMuPDF no está instalado: no se pueden procesar archivos PDF.")
@@ -1299,20 +1365,31 @@ def procesar_pdf(ruta_origen, ruta_destino, nombre_archivo, carpeta_salida=None)
         
     doc = fitz.open(ruta_origen)
     mapas_acumulados = {}
+    # Una sola tabla para todo el documento: con una por página, [PERSONA_1] de la página 2 pisaba en la llave
+    # al [PERSONA_1] de la página 1 y el PDF ya no se podía restaurar.
+    contadores, mapa_doc = {}, {}
     target_salida = carpeta_salida or CARPETA_SALIDA_DEFECTO
     
     for num_pag, pagina in enumerate(doc):
         texto_pagina = pagina.get_text()
+        etiquetas_pagina = []
         if texto_pagina.strip():
-            _, mapa_pag = anonimizar_texto_con_ia_y_key(texto_pagina)
-            for etiqueta, val_original in mapa_pag.items():
+            anonimizar_texto_con_ia_y_key(texto_pagina, contadores_existentes=contadores, key_map_existente=mapa_doc)
+            # Primero los valores largos, y sin tapar dos veces la misma zona: search_for no distingue mayúsculas,
+            # así que "Ana" también aparece dentro de "ana@correo.com", que ya lleva su propia etiqueta.
+            for etiqueta, val_original in sorted(mapa_doc.items(), key=lambda kv: len(kv[1]), reverse=True):
                 if len(val_original.strip()) > 1 and val_original.lower().strip() not in SOFTWARE_ALLOWLIST:
-                    rects = pagina.search_for(val_original)
+                    rects = [r for r in pagina.search_for(val_original)
+                             if not any(r.intersects(h) for h, _ in etiquetas_pagina)]
                     for rect in rects:
-                        pagina.add_redact_annot(rect, text=etiqueta, fill=(0.12, 0.16, 0.22), text_color=(1, 1, 1), fontsize=8)
-                    mapas_acumulados[etiqueta] = val_original
+                        pagina.add_redact_annot(rect, fill=FONDO_ETIQUETA_PDF)
+                        etiquetas_pagina.append((rect, etiqueta))
+                    if rects:
+                        mapas_acumulados[etiqueta] = val_original
                     
         pagina.apply_redactions()
+        for rect, etiqueta in etiquetas_pagina:
+            _escribir_en_hueco(pagina, rect, etiqueta, (1, 1, 1), 8)
         
         # C) Si no tiene texto, aplicar OCR si está disponible
         if not texto_pagina.strip() and pagina.get_images() and not lector_ocr:
