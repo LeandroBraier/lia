@@ -720,10 +720,6 @@ async def main(page: ft.Page):
     # Flet 0.86 registra el servicio solo al crearlo. Registrarlo otra vez lo duplica en la página y el cliente
     # web falla con "RangeError" al recibirlo; según el navegador, el selector deja de responder.
     global_file_picker = ft.FilePicker()
-    # Flet descarta tras cada evento los servicios con pocas referencias (sys.getrefcount). En Python < 3.14
-    # (el de Docker) un selector que solo vive en los closures de los botones no llega al umbral y se pierde:
-    # el navegador deja de responder ("Timeout waiting for invoke method listener"). Se guarda mientras viva la página.
-    page._lia_servicios = [global_file_picker]
 
     async def click_abrir_picker_documentos(e):
         try:
