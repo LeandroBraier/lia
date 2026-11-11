@@ -73,3 +73,10 @@ Registros/
 # Volúmenes de Docker: documentos, llaves, licencia y registro del cliente
 datos/
 registros/
+
+# Documentos restaurados (datos personales en claro) y carpetas de la app en inglés
+Restaurados/
+Restored/
+Input/
+Pseudonymized/
+Anonymized/
